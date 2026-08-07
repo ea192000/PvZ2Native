@@ -28,8 +28,8 @@ GAME_DIR="${PROJECT_ROOT}/game"
 # Directory where the compiled executable is expected to land.
 EXE_DIR="${BUILD_DIR}/pvz2native"
 
-# Directory where libPVZ2.so and the OBB must be placed for the game to run.
-LIB_DIR="${EXE_DIR}/lib"
+# Game assets (libPVZ2.so + OBB) live next to the executable, not in a lib/ subfolder.
+ASSET_DIR="${EXE_DIR}"
 
 # File that receives the full CMake / build output for later inspection.
 LOG_FILE="${BUILD_DIR}/compile.log"
@@ -192,10 +192,15 @@ check_deps() {
 configure() {
     info "Configuring with CMake (${BUILD_TYPE})..."
 
+    local boost_dir="${PROJECT_ROOT}/third_party/boost_1_84_0"
     local cmake_args=(
         -DCMAKE_POLICY_VERSION_MINIMUM=3.5
         -DCMAKE_BUILD_TYPE="${BUILD_TYPE}"
-        -DBoost_ROOT="${PROJECT_ROOT}/third_party/boost_1_84_0"
+        # CMake < 3.27 understands BOOST_ROOT; newer also accepts Boost_ROOT.
+        -DBOOST_ROOT="${boost_dir}"
+        -DBoost_ROOT="${boost_dir}"
+        -DBoost_INCLUDE_DIR="${boost_dir}"
+        -DBoost_NO_SYSTEM_PATHS=ON
         -DDYNARMIC_USE_PRECOMPILED_HEADERS=OFF
         ..
     )
@@ -237,10 +242,11 @@ build() {
 # -----------------------------------------------------------------------------
 # Locate the native Android library. Prefer an already extracted libPVZ2.so in
 # the game/ directory; otherwise try to extract it from the first APK found.
+# Assets are placed next to the executable (same folder as pvz2).
 copy_or_extract_lib() {
     if [[ -f "${GAME_DIR}/libPVZ2.so" ]]; then
-        info "Copying game/libPVZ2.so → ${LIB_DIR}/"
-        cp "${GAME_DIR}/libPVZ2.so" "${LIB_DIR}/"
+        info "Copying game/libPVZ2.so → ${ASSET_DIR}/"
+        cp "${GAME_DIR}/libPVZ2.so" "${ASSET_DIR}/"
         return 0
     fi
 
@@ -263,7 +269,7 @@ copy_or_extract_lib() {
 
     # Try each known ABI path inside the APK until one succeeds.
     for abi in "${ABIS[@]}"; do
-        if unzip -j -o "${apk}" "${abi}" -d "${LIB_DIR}" >/dev/null 2>&1; then
+        if unzip -j -o "${apk}" "${abi}" -d "${ASSET_DIR}" >/dev/null 2>&1; then
             success "Extracted ${abi} from APK"
             return 0
         fi
@@ -288,33 +294,33 @@ copy_obb() {
         return 1
     fi
 
-    info "Copying $(basename "${obb}") → ${LIB_DIR}/"
-    cp "${obb}" "${LIB_DIR}/"
+    info "Copying $(basename "${obb}") → ${ASSET_DIR}/"
+    cp "${obb}" "${ASSET_DIR}/"
     return 0
 }
 
 # -----------------------------------------------------------------------------
 # Final summary
 # -----------------------------------------------------------------------------
-# Report the build outcome, list the files under lib/, and warn about missing
-# assets that the user still needs to provide manually.
+# Report the build outcome, list assets next to the executable, and warn about
+# missing files that the user still needs to provide manually.
 summary() {
     echo ""
     echo "${BOLD}Summary${RESET}"
     echo "  Build type: ${BUILD_TYPE}"
     echo "  Build log:  ${LOG_FILE}"
-    echo "  Executable: ${EXE_DIR}/pvz2native"
+    echo "  Executable: ${EXE_DIR}/pvz2"
 
-    if [[ ! -f "${EXE_DIR}/pvz2native" ]]; then
-        warn "Executable not found at ${EXE_DIR}/pvz2native"
+    if [[ ! -f "${EXE_DIR}/pvz2" ]]; then
+        warn "Executable not found at ${EXE_DIR}/pvz2"
     else
         success "Executable built successfully"
     fi
 
     echo ""
-    echo "${BOLD}lib/ contents:${RESET}"
-    if [[ -d "${LIB_DIR}" ]]; then
-        ls -1 "${LIB_DIR}" 2>/dev/null || echo "(empty)"
+    echo "${BOLD}Assets next to executable:${RESET}"
+    if [[ -d "${ASSET_DIR}" ]]; then
+        ls -1 "${ASSET_DIR}"/libPVZ2.so "${ASSET_DIR}"/*.obb 2>/dev/null || echo "(none yet)"
     else
         echo "(directory missing)"
     fi
@@ -322,17 +328,18 @@ summary() {
 
     local missing=()
 
-    if [[ ! -f "${LIB_DIR}/libPVZ2.so" ]]; then
+    if [[ ! -f "${ASSET_DIR}/libPVZ2.so" ]]; then
         missing+=("libPVZ2.so")
         echo "${YELLOW}Missing:${RESET} libPVZ2.so"
         echo "  Place it at: ${GAME_DIR}/libPVZ2.so"
         echo "  Or an APK at: ${GAME_DIR}/<game>.apk"
+        echo "  (copied next to the executable)"
         echo ""
     fi
 
-    # Detect whether at least one OBB has been placed inside lib/.
+    # Detect whether at least one OBB has been placed next to the executable.
     local obb_found="no"
-    for f in "${LIB_DIR}"/*.obb; do
+    for f in "${ASSET_DIR}"/*.obb; do
         if [[ -f "$f" ]]; then
             obb_found="yes"
             break
@@ -341,8 +348,9 @@ summary() {
 
     if [[ "${obb_found}" == "no" ]]; then
         missing+=("OBB file")
-        echo "${YELLOW}Missing:${RESET} main.<version>.com.ea.game.pvz2_<region>.obb"
+        echo "${YELLOW}Missing:${RESET} data.obb (or main.<version>.com.ea.game.pvz2_<region>.obb)"
         echo "  Place it at: ${GAME_DIR}/"
+        echo "  (copied next to the executable)"
         echo ""
     fi
 
@@ -380,7 +388,17 @@ main() {
 
     cd "${PROJECT_ROOT}"
 
-    mkdir -p "${LIB_DIR}"
+    mkdir -p "${ASSET_DIR}"
+
+    # UI/splash assets: on Linux these are read from <exe>/assets/ (Windows embeds
+    # the same files via the .rc). Always refresh the copy next to the binary.
+    if [[ -d "${PROJECT_ROOT}/assets" ]]; then
+        info "Copying assets/ → ${ASSET_DIR}/assets/"
+        rm -rf "${ASSET_DIR}/assets"
+        cp -a "${PROJECT_ROOT}/assets" "${ASSET_DIR}/assets"
+    else
+        warn "assets/ not found at ${PROJECT_ROOT}/assets (splash/settings UI will be missing on Linux)"
+    fi
 
     # Copy/extract game assets unless the user explicitly asked to skip them.
     if [[ "${NO_ASSETS}" != "yes" ]]; then

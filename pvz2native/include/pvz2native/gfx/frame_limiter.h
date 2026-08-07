@@ -13,7 +13,8 @@ extern "C" {
  * buffer-queue pump), so waiting here slows nothing down but the redraw. */
 
 /* Reads [video] fps_limit and applies it. Requires a current GL context (it
- * sets the swap interval). Call once, before the frame loop:
+ * sets the swap interval). Safe to call again after changing fps_limit at
+ * runtime:
  *   fps_limit > 0 -> vsync on (adaptive if the driver has it) plus a wait that
  *                    holds the loop to that many frames per second; the display's
  *                    refresh still caps it further.

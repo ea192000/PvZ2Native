@@ -13,6 +13,9 @@
 #include <SDL.h>
 
 #include <stdio.h>
+#if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
+#include <immintrin.h>
+#endif
 
 /* Performance-counter ticks one frame is allowed to take; 0 means uncapped. */
 static Uint64 g_frame_ticks = 0;
@@ -60,19 +63,27 @@ void pvz2_frame_limit_init(void) {
 void pvz2_frame_limit_wait(void) {
     if (g_frame_ticks == 0) return;
 
-    const Uint64 now = SDL_GetPerformanceCounter();
+    Uint64 now = SDL_GetPerformanceCounter();
     if (g_next_frame == 0) { /* first frame: nothing to wait for, just anchor */
         g_next_frame = now + g_frame_ticks;
         return;
     }
 
     if (now < g_next_frame) {
-        /* Sleep, never spin. A busy-wait would burn the CPU this cap exists to
-         * save, and sub-millisecond accuracy buys nothing here: the swap already
-         * pins the frame to a vblank, and the absolute deadline keeps the
-         * average exact even when SDL_Delay returns up to a millisecond early. */
-        const Uint32 ms = (Uint32)(((g_next_frame - now) * 1000) / g_perf_freq);
-        if (ms > 0) SDL_Delay(ms);
+        /* Hybrid wait for steadier frame pacing:
+         *  - coarse SDL_Delay(1) while we're still clearly early
+         *  - short spin in the last sub-millisecond slice for precision */
+        const Uint64 fine_window = g_perf_freq / 2000; /* ~0.5 ms */
+        while (now + fine_window < g_next_frame) {
+            SDL_Delay(1);
+            now = SDL_GetPerformanceCounter();
+        }
+        while (now < g_next_frame) {
+#if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
+            _mm_pause();
+#endif
+            now = SDL_GetPerformanceCounter();
+        }
     }
 
     g_next_frame += g_frame_ticks;

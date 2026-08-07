@@ -4,6 +4,7 @@
 #include <pvz2native/surface.h>
 
 #include <atomic>
+#include <cstdint>
 
 namespace {
 

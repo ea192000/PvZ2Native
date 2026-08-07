@@ -7,6 +7,40 @@
 extern "C" {
 #endif
 
+#define PVZ2_MAX_SHORTCUTS 64
+#define PVZ2_MAX_BOARD_CELLS 64
+#define PVZ2_MAX_GAMEPAD_BINDS 32
+
+typedef struct pvz2_shortcut_binding {
+    char name[64];
+    char key[32];
+    /* Canonical 16:9 tap position (also used by the settings bind preview). */
+    float x;
+    float y;
+    /* Optional 4:3 tap position from the INI. Unused when has_43 == 0. */
+    float x43;
+    float y43;
+    int has_43; /* 1 if a 4:3 pair was present in config.ini */
+} pvz2_shortcut_binding_t;
+
+/* Lawn cell center for gamepad focus ([board] position_ROW_COL). */
+typedef struct pvz2_board_cell {
+    int row; /* 1-based */
+    int col; /* 1-based */
+    float x;
+    float y;
+    float x43;
+    float y43;
+    int has_43;
+} pvz2_board_cell_t;
+
+/* Maps a gamepad button name ("start","b",...) to a shortcut id ("bind_pause").
+ * bind_name empty means NULL / unmapped. */
+typedef struct pvz2_gamepad_bind {
+    char button[16];
+    char bind_name[64];
+} pvz2_gamepad_bind_t;
+
 /* Runtime configuration, read once from config.ini next to the executable.
  *
  * Every debug switch defaults OFF, so a plain build (no config.ini at all) is
@@ -22,6 +56,7 @@ typedef struct pvz2_config {
     int trace;          /* per-import-call trace (~57MB/run, very loud) */
     int pc_sample;      /* [pc-sample]/[HOT] instruction sampling + hot-frame slicing */
     int input;          /* per-event touch/key logging + a frame heartbeat */
+    int console;        /* show console/log output (1) or stay quiet (0); on Windows also shows/hides the console window */
 
     /* [runtime] -- how the emulator behaves. */
     int no_page_table;        /* route guest memory through the slow callback path */
@@ -64,6 +99,7 @@ typedef struct pvz2_config {
     char currency_symbol[8];
     char currency_code[8];
     char product_version_string[32];
+    char player_uuid[64];
 
     /* [video] -- how the window and the guest surface are sized.
      *
@@ -117,12 +153,32 @@ typedef struct pvz2_config {
     int persist_saves;
 
     /* [paths] -- keys `so`, `obb` and `save`. Always concrete after load: a value
-     * left unset in the .ini is filled with <exe_dir>/lib/<default filename>
-     * (so/obb) or <exe_dir>/save (save_dir), and a relative one is resolved
-     * against the executable's folder. */
+     * left unset in the .ini is filled with <exe_dir>/<default filename>
+     * (so/obb) or the executable's own folder (save_dir), and a relative one is
+     * resolved against the executable's folder. */
     char so_path[512];
     char obb_path[512];
     char save_dir[512];
+
+    /* [shortcuts] -- dynamic binds parsed from keys `bind_*` with format
+     * `KEY / x16,y16 [/ x43,y43]`, where x/y are normalized (0..1). */
+    unsigned shortcut_count;
+    pvz2_shortcut_binding_t shortcuts[PVZ2_MAX_SHORTCUTS];
+
+    /* [board] -- lawn cell centers for gamepad D-pad / R1 (no keys). */
+    unsigned board_count;
+    pvz2_board_cell_t board[PVZ2_MAX_BOARD_CELLS];
+
+    /* [gamepad] -- host gamepad options. */
+    int gamepad_enabled;
+    int gamepad_port;
+    float gamepad_stick_speed;
+    float gamepad_stick_deadzone;
+    float gamepad_trigger_threshold;
+
+    /* [gamepad_binds] -- button -> bind_* name (empty bind_name = NULL). */
+    unsigned gamepad_bind_count;
+    pvz2_gamepad_bind_t gamepad_binds[PVZ2_MAX_GAMEPAD_BINDS];
 } pvz2_config_t;
 
 /* Base height the "auto" video mode scales the display aspect to. 540 keeps the
@@ -133,14 +189,62 @@ typedef struct pvz2_config {
 /* Loads config.ini from `ini_path` (may be NULL or missing -> all defaults).
  * Any path left unset in the file is resolved against `base_dir` (the
  * executable's directory, normally with a trailing separator) as
- * base_dir + "lib/" + default name. Call once, early, before
- * pvz2_session_start. Safe to call again to reload. */
+ * base_dir + default name. Older/incomplete files are migrated in place:
+ * missing required sections/keys are added with defaults, and values that
+ * fail the expected type/format are rewritten to the default. Call once,
+ * early, before pvz2_session_start. Safe to call again to reload. */
 void pvz2_config_load(const char *ini_path, const char *base_dir);
+
+/* Applies a single runtime override (used for command-line options).
+ *
+ * Accepted names:
+ *   - key only:       "fullscreen", "fps_limit", "so", ...
+ *   - section + key:  "video.fullscreen", "paths.so", ...
+ *
+ * Returns 1 if the key exists and was applied, 0 otherwise. `bind_*` and the
+ * [shortcuts] section are intentionally not supported here. */
+int pvz2_config_override(const char *name, const char *value);
 
 /* The loaded config. Never NULL: before pvz2_config_load runs it returns an
  * all-defaults (all-off, empty paths) instance, so shim code can read it
  * unconditionally without an init check. */
 const pvz2_config_t *pvz2_config(void);
+
+/* Updates the key string of shortcut entry at position `idx` (0-based) both
+ * in the in-memory config and in config.ini on disk.  `idx` must be less than
+ * pvz2_config()->shortcut_count.  Returns 1 on success, 0 on failure. */
+int pvz2_config_update_bind_key(unsigned idx, const char *new_key);
+
+/* Sets [gamepad_binds] mapping for `button` (e.g. "x","b","l3") to `bind_name`
+ * ("bind_pause", "NULL"/empty to clear). Persists to config.ini. Clears the
+ * same bind_name from other remappable buttons (b/x/y/l3/r3) for UI uniqueness.
+ * Returns 1 on success. */
+int pvz2_config_update_gamepad_bind(const char *button, const char *bind_name);
+
+/* Sets [gamepad] enabled + port and persists to config.ini. Returns 1 on success. */
+int pvz2_config_update_gamepad_device(int enabled, int port);
+
+/* which: 0 = stick_speed, 1 = stick_deadzone.
+ * persist!=0 writes [gamepad] to config.ini; 0 only updates live memory. */
+int pvz2_config_update_gamepad_stick_param(int which, float value, int persist);
+
+/* Reloads the runtime shortcut table from the current live config.
+ * Must be called after pvz2_config_update_bind_key for changes to take effect
+ * immediately without restarting. */
+void pvz2_reload_shortcuts(void);
+
+/* Writes the settings-overlay fields into the in-memory config. Does not touch
+ * disk. Returns 1 if user_locale changed (the game text tables need a restart),
+ * 0 if everything else can be applied live. */
+int pvz2_config_apply_overlay_settings(int fullscreen, int width, int height,
+                                       int fps_limit, const char *locale,
+                                       const char *currency_symbol,
+                                       const char *currency_code,
+                                       int emulate_iap);
+
+/* Applies fullscreen / window size on the live SDL window and notifies the
+ * guest of the new drawable size. Defined in main.c. */
+void pvz2_host_apply_video_settings(int fullscreen, int width, int height);
 
 #ifdef __cplusplus
 }  /* extern "C" */

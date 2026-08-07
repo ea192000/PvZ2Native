@@ -119,6 +119,10 @@ struct GuestRuntime {
     uint32_t next_file_token = kFileTokenBase;
     uint32_t next_fd_token = kFdTokenBase;
 
+    /* Set during session teardown so guest threads blocked in sem_wait /
+     * cond_wait can wake and unwind before their Jit is destroyed. */
+    std::atomic<bool> shutting_down{false};
+
     /* Set the moment translate_path() redirects a guest "main.rsb" path to
      * the real .obb -- the observable that tells the frame loop the engine
      * reached its own RSB load path (doc 9.23). */

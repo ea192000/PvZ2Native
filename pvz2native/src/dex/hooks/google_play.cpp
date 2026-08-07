@@ -27,6 +27,8 @@
  */
 
 #include <pvz2native/dex/dex.h>
+#include <pvz2native/config_screen.h>
+#include <SDL.h>
 
 namespace pvz2native {
 namespace dex {
@@ -49,11 +51,19 @@ constexpr const char *kCloud = "java/lang/Object";
  * aborts the guest) all use the shared stub bodies from dex.h --
  * hook_not_connected, hook_ignored, hook_empty_string. */
 
+/* Play_Connect is called when the player presses the Google Play button on the
+ * main menu. Google Play Games is not supported in this port; the button press
+ * opens the in-game configuration screen instead. */
+void open_config_screen(DexCall &d) {
+    (void)d;
+    config_screen_request_open();
+}
+
 }  // namespace
 
 void register_google_play(HookTable &t) {
     t.add(kConnect, "Play_IsConnected", hook_not_connected);
-    t.add(kConnect, "Play_Connect", hook_ignored);
+    t.add(kConnect, "Play_Connect", open_config_screen);
     t.add(kConnect, "Play_Connect_Silent", hook_ignored);
     t.add(kConnect, "Play_Disconnect", hook_ignored);
 

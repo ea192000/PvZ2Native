@@ -35,7 +35,7 @@ void dl_close(GuestCall &c) { c.set_result(0); }
 
 void dl_error(GuestCall &c) {
     static std::uint32_t slot = 0;
-    if (slot == 0) slot = c.dup_cstr("dynamic loading is not available in PvZ2Native");
+    if (slot == 0) slot = c.dup_cstr("dynamic loading is not available in PvZ2");
     c.set_result(slot);
 }
 

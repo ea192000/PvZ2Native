@@ -94,7 +94,7 @@ int pvz2_gl_check_requirements(struct SDL_Window *window) {
              renderer, vendor, detail, PVZ2_REQUIRED_GL_MAJOR, PVZ2_REQUIRED_GL_MINOR);
 
     fprintf(stderr, "pvz2: [gl] requirement not met -- %s\n", message);
-    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "PvZ2Native - Unsupported GPU", message,
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "PvZ2 - Unsupported GPU", message,
                              (SDL_Window *)window);
     return 0;
 }

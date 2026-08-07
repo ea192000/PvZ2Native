@@ -19,6 +19,7 @@
 
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
 
 #include <pvz2native/audio/audio_output.h>
 #include <pvz2native/config.h>
@@ -271,8 +272,13 @@ extern "C" void pvz2_session_end(pvz2_session_t *s) {
      * wait_for_completion() so it can unwind before its Jit goes away. */
     pvz2native::audio::shutdown();
     /* Any guest thread that outlived the call that spawned it holds raw
-     * pointers to both img and rt, so it must be joined before either dies. */
-    rt_::join_leftover_guest_threads(&s->rt);
+     * pointers to both img and rt, so it must be joined before either dies.
+     * If a worker stays forever in sem_wait, join times out -- freeing the
+     * session then races the still-running Jit (SIGSEGV). Hard-exit instead. */
+    if (!rt_::join_leftover_guest_threads(&s->rt)) {
+        std::fflush(stdout);
+        std::_Exit(0);
+    }
     /* The shared main-thread Jit points at rt->monitor and its Env points at
      * img, so it has to go before either -- see GuestThreadCtx. */
     rt_::release_main_ctx();

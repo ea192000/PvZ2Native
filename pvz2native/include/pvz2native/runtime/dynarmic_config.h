@@ -399,8 +399,10 @@ void set_session_image(pvz2_elf_image_t *img, GuestRuntime *rt);
 
 /* Joins any guest thread that outlived the call which spawned it -- their
  * lambdas hold raw pointers to both img and rt, so this must happen before
- * either dies. */
-void join_leftover_guest_threads(GuestRuntime *rt);
+ * either dies. Wakes guest sync primitives first. Returns false if some
+ * threads were still alive after the join deadline (caller should not free
+ * img/rt; typically _Exit instead). */
+bool join_leftover_guest_threads(GuestRuntime *rt);
 
 /* --- entering guest code ----------------------------------------------------
  *

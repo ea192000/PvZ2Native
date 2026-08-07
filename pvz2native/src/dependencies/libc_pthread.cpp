@@ -30,14 +30,16 @@ using namespace std::chrono_literals;
 constexpr auto kStuckWarnAfter = 3000ms;
 constexpr std::uint32_t kEBUSY = 16;
 constexpr std::uint32_t kEAGAIN = 11;
+constexpr std::uint32_t kEINTR = 4;
 constexpr std::uint32_t kETIMEDOUT = 110;
 
 /* Absolute deadlines in the guest's timespec are CLOCK_REALTIME seconds+nanos,
  * which is the same epoch the host's system_clock uses. */
 std::chrono::system_clock::time_point deadline_from(GuestCall &c, std::uint32_t ts) {
     std::uint32_t sec = c.read32(ts), nsec = c.read32(ts + 4);
-    return std::chrono::system_clock::time_point(std::chrono::seconds(sec) +
-                                                 std::chrono::nanoseconds(nsec));
+    const auto d = std::chrono::seconds(sec) + std::chrono::nanoseconds(nsec);
+    return std::chrono::system_clock::time_point(
+        std::chrono::duration_cast<std::chrono::system_clock::duration>(d));
 }
 
 /* ---------------------------------------------------------------- mutex
@@ -166,14 +168,23 @@ void c_cond_wait(GuestCall &c) {
      * signal that arrives between releasing the guest mutex and entering the
      * wait still bumps it, so the predicate is already true. */
     std::uint64_t gen = gc->generation;
+    auto wake = [&] {
+        return gc->generation != gen || c.rt->shutting_down.load(std::memory_order_relaxed);
+    };
     gm->unlock(self);
-    if (!gc->cv.wait_for(lk, kStuckWarnAfter, [&] { return gc->generation != gen; })) {
+    if (!gc->cv.wait_for(lk, kStuckWarnAfter, wake)) {
         c.log("[stuck] tid=%u blocked >3s in pthread_cond_wait(cond=0x%08x, mutex=0x%08x) lr=0x%08x",
               self, c.arg(0), c.arg(1), c.lr());
-        gc->cv.wait(lk, [&] { return gc->generation != gen; });
+        gc->cv.wait(lk, wake);
     }
+    bool shutting_down = c.rt->shutting_down.load(std::memory_order_relaxed);
     lk.unlock();
     gm->lock(self);
+    if (shutting_down) {
+        c.set_errno(kEINTR);
+        c.set_result((std::uint32_t)-1);
+        return;
+    }
     c.set_result(0);
 }
 
@@ -274,7 +285,10 @@ void c_sem_wait(GuestCall &c) {
     GuestSem *gs = c.rt->get_or_create_sem(c.arg(0));
     std::unique_lock<std::mutex> lk(gs->m);
     gs->waiters++;
-    if (!gs->cv.wait_for(lk, kStuckWarnAfter, [&] { return gs->count > 0; })) {
+    auto wake = [&] {
+        return gs->count > 0 || c.rt->shutting_down.load(std::memory_order_relaxed);
+    };
+    if (!gs->cv.wait_for(lk, kStuckWarnAfter, wake)) {
         /* Report with this semaphore's mutex released: the dump walks every
          * other semaphore and would otherwise hold two of them at once. */
         lk.unlock();
@@ -282,9 +296,14 @@ void c_sem_wait(GuestCall &c) {
               c.arg(0), c.lr());
         report_sems(c);
         lk.lock();
-        gs->cv.wait(lk, [&] { return gs->count > 0; });
+        gs->cv.wait(lk, wake);
     }
     gs->waiters--;
+    if (c.rt->shutting_down.load(std::memory_order_relaxed) && gs->count <= 0) {
+        c.set_errno(kEINTR);
+        c.set_result((std::uint32_t)-1);
+        return;
+    }
     gs->count--;
     c.set_result(0);
 }

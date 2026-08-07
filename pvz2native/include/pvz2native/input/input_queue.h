@@ -63,6 +63,11 @@ void pvz2_input_push_key(int android_keycode, int down);
 /* UTF-8, as SDL_TEXTINPUT delivers it. */
 void pvz2_input_push_text(const char *utf8);
 
+/* Host-side safety reset for stuck touch sequences: emits a synthetic
+ * TOUCH_CANCEL and rotates the active touch id so future events cannot match a
+ * stale in-guest capture. */
+void pvz2_input_force_touch_reset(void);
+
 /* Non-zero while the engine has asked for the soft keyboard, i.e. between
  * Device_ShowKeyboard and Device_HideKeyboard. main.c uses it to drive
  * SDL_StartTextInput/SDL_StopTextInput. */
@@ -70,6 +75,11 @@ int pvz2_input_keyboard_wanted(void);
 
 /* Set by the Device_*Keyboard hooks in src/dex/hooks/android_game_app.cpp. */
 void pvz2_input_set_keyboard_wanted(int wanted);
+
+/* Incremented every time the keyboard-visible state is explicitly refreshed by
+ * the guest, even if the value stays the same (for example clicking from one
+ * text field into another). */
+uint32_t pvz2_input_keyboard_wanted_generation(void);
 
 #ifdef __cplusplus
 }  /* extern "C" */

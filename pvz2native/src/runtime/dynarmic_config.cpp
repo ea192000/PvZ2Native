@@ -6,6 +6,7 @@
 #include <pvz2native/runtime/dynarmic_config.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -13,6 +14,8 @@
 #include <set>
 #include <string>
 #include <thread>
+#include <utility>
+#include <vector>
 
 #include <pvz2native/config.h>
 #include <pvz2native/dex/dex.h>
@@ -872,16 +875,101 @@ std::uint32_t Pvz2Env::join_guest_thread_impl(GuestRuntime *rt, std::uint32_t id
     return it == rt->thread_retvals.end() ? 0 : it->second;
 }
 
-void join_leftover_guest_threads(GuestRuntime *rt) {
-    std::vector<std::thread> leftover;
+/* Wake every guest sync object so threads parked in sem_wait / cond_wait can
+ * see shutting_down and return. Audio shutdown already unblocks the OpenSL
+ * completion wait; this covers the rest of the pthread table. */
+static void wake_guest_sync_for_shutdown(GuestRuntime *rt) {
+    rt->shutting_down.store(true, std::memory_order_release);
+
+    {
+        std::lock_guard<std::mutex> lock(rt->sems_lock);
+        for (auto &kv : rt->guest_sems) {
+            GuestSem *gs = kv.second.get();
+            {
+                std::lock_guard<std::mutex> lk(gs->m);
+                /* Ensure the wait predicate can succeed even if a waiter races
+                 * the flag; count is harmless once the process is exiting. */
+                if (gs->count < 1) gs->count = 1;
+            }
+            gs->cv.notify_all();
+        }
+    }
+    {
+        std::lock_guard<std::mutex> lock(rt->conds_lock);
+        for (auto &kv : rt->guest_conds) {
+            GuestCond *gc = kv.second.get();
+            {
+                std::lock_guard<std::mutex> lk(gc->m);
+                gc->generation++;
+            }
+            gc->cv.notify_all();
+        }
+    }
+    {
+        std::lock_guard<std::mutex> lock(rt->mutexes_lock);
+        for (auto &kv : rt->guest_mutexes) {
+            /* Unblock anyone stuck in GuestMutex::lock after a stuck report. */
+            kv.second->cv.notify_all();
+        }
+    }
+}
+
+bool join_leftover_guest_threads(GuestRuntime *rt) {
+    using namespace std::chrono_literals;
+    wake_guest_sync_for_shutdown(rt);
+
+    std::vector<std::pair<std::uint32_t, std::thread>> leftover;
     {
         std::lock_guard<std::mutex> lock(rt->threads_lock);
-        for (auto &kv : rt->threads) leftover.push_back(std::move(kv.second));
+        leftover.reserve(rt->threads.size());
+        for (auto &kv : rt->threads) {
+            leftover.emplace_back(kv.first, std::move(kv.second));
+        }
         rt->threads.clear();
     }
-    for (auto &th : leftover) {
-        if (th.joinable()) th.join();
+
+    /* Guest workers often sit forever in sem_wait for audio/bank work that
+     * never comes after audio::shutdown(). Give them a short window to unwind
+     * after the wake above; anything still alive is detached and the caller
+     * must not free img/rt (use _Exit). */
+    constexpr auto kJoinDeadline = 2s;
+    const auto deadline = std::chrono::steady_clock::now() + kJoinDeadline;
+    bool all_joined = true;
+
+    for (auto &entry : leftover) {
+        const std::uint32_t id = entry.first;
+        std::thread &th = entry.second;
+        if (!th.joinable()) continue;
+
+        while (std::chrono::steady_clock::now() < deadline) {
+            {
+                std::lock_guard<std::mutex> lock(rt->threads_lock);
+                if (rt->thread_retvals.find(id) != rt->thread_retvals.end()) break;
+            }
+            /* Re-poke sync in case a thread re-entered wait after a spurious
+             * wake before seeing shutting_down. */
+            wake_guest_sync_for_shutdown(rt);
+            std::this_thread::sleep_for(20ms);
+        }
+
+        bool finished = false;
+        {
+            std::lock_guard<std::mutex> lock(rt->threads_lock);
+            finished = rt->thread_retvals.find(id) != rt->thread_retvals.end();
+        }
+        if (finished) {
+            th.join();
+        } else {
+            {
+                std::lock_guard<std::mutex> lg(rt->log_lock);
+                std::printf("pvz2: [shutdown] guest thread %u still blocked after "
+                            "join deadline -- detaching\n", id);
+            }
+            th.detach();
+            all_joined = false;
+        }
     }
+    return all_joined;
 }
 
 /* --- entering guest code ---------------------------------------------------- */

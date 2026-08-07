@@ -1,0 +1,77 @@
+1 ICON "../assets/icon.ico"
+100 CURSOR "../assets/cursor.cur"
+101 RCDATA "../assets/splash.bmp"
+102 RCDATA "../assets/splash_bar_fill.bmp"
+103 RCDATA "../assets/splash_bar_frame.bmp"
+
+/* Config screen assets (200-232) */
+200 RCDATA "../assets/config/panel_bg.bmp"
+201 RCDATA "../assets/config/list_bg.bmp"
+202 RCDATA "../assets/config/list_item.bmp"
+203 RCDATA "../assets/config/btn_close_up.bmp"
+204 RCDATA "../assets/config/btn_close_down.bmp"
+205 RCDATA "../assets/config/btn_back_up.bmp"
+206 RCDATA "../assets/config/btn_back_down.bmp"
+207 RCDATA "../assets/config/btn_arrow_up.bmp"
+208 RCDATA "../assets/config/btn_arrow_down.bmp"
+209 RCDATA "../assets/config/chk_checked.bmp"
+210 RCDATA "../assets/config/chk_unchecked.bmp"
+211 RCDATA "../assets/config/scroll_track.bmp"
+212 RCDATA "../assets/config/scroll_bar.bmp"
+213 RCDATA "../assets/config/font.otf"
+214 RCDATA "../assets/config/check_click.wav"
+215 RCDATA "../assets/config/next_click.wav"
+216 RCDATA "../assets/config/close_click.wav"
+217 RCDATA "../assets/config/back_click.wav"
+218 RCDATA "../assets/config/btn_edit_up.bmp"
+219 RCDATA "../assets/config/btn_edit_down.bmp"
+220 RCDATA "../assets/config/btn_save_up.bmp"
+221 RCDATA "../assets/config/btn_save_down.bmp"
+222 RCDATA "../assets/config/txt_bind_input.bmp"
+223 RCDATA "../assets/config/img_bind_container.bmp"
+224 RCDATA "../assets/config/img_bind_preview.bmp"
+225 RCDATA "../assets/config/point_green.bmp"
+226 RCDATA "../assets/config/confirm_click.wav"
+227 RCDATA "../assets/config/btn_exit_up.bmp"
+228 RCDATA "../assets/config/btn_exit_down.bmp"
+229 RCDATA "../assets/config/btn_cancel_up.bmp"
+230 RCDATA "../assets/config/btn_cancel_down.bmp"
+231 RCDATA "../assets/config/panel_exit_bg.bmp"
+232 RCDATA "../assets/config/exit_click.wav"
+233 RCDATA "../assets/config/slider_thumb.bmp"
+234 RCDATA "../assets/config/slider_track_empty.bmp"
+235 RCDATA "../assets/config/slider_track_full.bmp"
+236 RCDATA "../assets/config/slider_click.wav"
+
+1 VERSIONINFO
+ FILEVERSION 4,5,2,0
+ PRODUCTVERSION 4,5,2,0
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS 0x1L
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904E4"
+        BEGIN
+            VALUE "CompanyName", "PopCap Games, Inc.\0"
+            VALUE "FileDescription", "Plants vs. Zombies 2: It's About Time\0"
+            VALUE "FileVersion", "4.5.2.0\0"
+            VALUE "InternalName", "pvz2.exe\0"
+            VALUE "OriginalFilename", "pvz2.exe\0"
+            VALUE "ProductName", "Plants vs. Zombies 2\0"
+            VALUE "ProductVersion", "4.5.2.0\0"
+            VALUE "LegalCopyright", "(C) 2013 PopCap Games, Inc.\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1252
+    END
+END

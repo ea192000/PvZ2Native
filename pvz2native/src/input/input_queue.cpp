@@ -66,6 +66,7 @@ std::uint32_t touch_id_for(int phase) {
 std::mutex g_lock;
 std::deque<Event> g_queue;
 std::atomic<int> g_keyboard_wanted{0};
+std::atomic<std::uint32_t> g_keyboard_wanted_generation{1};
 
 /* A runaway producer must not grow this without bound; input older than this
  * is worthless anyway. */
@@ -195,10 +196,45 @@ void pvz2_input_push_text(const char *utf8) {
     push(std::move(ev));
 }
 
+void pvz2_input_force_touch_reset(void) {
+    const std::uint32_t active_id = g_active_touch_id.load(std::memory_order_relaxed);
+
+    /* Clear any guest-side captured pointer using the SAME id that was active. */
+    Event up;
+    up.kind = Event::Kind::Touch;
+    up.a = PVZ2_TOUCH_UP;
+    up.b = 0;
+    up.c = 0;
+    up.id = active_id;
+    push(std::move(up));
+
+    Event cancel;
+    cancel.kind = Event::Kind::Touch;
+    cancel.a = PVZ2_TOUCH_CANCEL;
+    cancel.b = 0;
+    cancel.c = 0;
+    cancel.id = active_id;
+    push(std::move(cancel));
+
+    /* Ensure following DOWN uses a fresh id not equal to any potentially
+     * captured stale id in the guest. */
+    std::uint32_t id = g_next_touch_id.fetch_add(1, std::memory_order_relaxed);
+    if (id == 0) id = g_next_touch_id.fetch_add(1, std::memory_order_relaxed);
+    g_active_touch_id.store(id, std::memory_order_relaxed);
+}
+
 int pvz2_input_keyboard_wanted(void) { return g_keyboard_wanted.load(std::memory_order_relaxed); }
 
 void pvz2_input_set_keyboard_wanted(int wanted) {
     g_keyboard_wanted.store(wanted, std::memory_order_relaxed);
+    std::uint32_t next = g_keyboard_wanted_generation.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (next == 0) {
+        g_keyboard_wanted_generation.store(1, std::memory_order_relaxed);
+    }
+}
+
+std::uint32_t pvz2_input_keyboard_wanted_generation(void) {
+    return g_keyboard_wanted_generation.load(std::memory_order_relaxed);
 }
 
 }  // extern "C"

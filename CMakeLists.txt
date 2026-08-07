@@ -1,6 +1,12 @@
-cmake_minimum_required(VERSION 3.1)
-cmake_policy(SET CMP0144 NEW)
-cmake_policy(SET CMP0167 NEW)
+cmake_minimum_required(VERSION 3.5)
+# These policies exist only on newer CMake (3.27+ / 3.30+). Ubuntu 20.04 ships
+# 3.16, so guard them: without the guard, configure aborts before the build.
+if(POLICY CMP0144)
+    cmake_policy(SET CMP0144 NEW)
+endif()
+if(POLICY CMP0167)
+    cmake_policy(SET CMP0167 OLD)
+endif()
 project(pvz2native)
 
 include_directories(${PROJECT_SOURCE_DIR}/stb)

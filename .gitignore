@@ -1,7 +1,39 @@
-build/
-game/
+# Build outputs
+/build/
+/out/
+/game/
+
+# Visual Studio
+/.vs/
+*.VC.db
+*.VC.opendb
+*.opensdf
+*.sdf
+
+# VS Code
+.vscode/
+
+# Editor temporary files
 *.swp
 *.swo
 *~
-.DS_Store
+*.tmp
+*.bak
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+Testing/
+
+# Windows
 Thumbs.db
+Desktop.ini
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride

@@ -11,6 +11,8 @@
 #include <pvz2native/dex/dex.h>
 #include <pvz2native/input/input_queue.h>
 
+#include <SDL.h>
+
 #include <cctype>
 #include <cstdint>
 #include <cstdio>
@@ -72,11 +74,11 @@ void log_records(DexCall &d, const std::vector<std::uint8_t> &r) {
         const std::uint32_t type = rd32(r, off);
         if (type == 0) {
             const std::uint32_t phase = rd32(r, off + 36);
-            //d.c.log("[input]   touch %-6s (phase=%u) id=%u x=%d y=%d", touch_phase_name(phase),
-                    //phase, rd32(r, off + 4), (int)rd32(r, off + 8), (int)rd32(r, off + 12));
+            d.c.log("[input]   touch %-6s (phase=%u) id=%u x=%d y=%d", touch_phase_name(phase),
+                    phase, rd32(r, off + 4), (int)rd32(r, off + 8), (int)rd32(r, off + 12));
             off += 48;
         } else if (type == 1) {
-            //d.c.log("[input]   key code=%u down=%u", rd32(r, off + 4), rd32(r, off + 8));
+            d.c.log("[input]   key code=%u down=%u", rd32(r, off + 4), rd32(r, off + 8));
             off += 32;
         } else if (type == 6) {
             const std::uint32_t n = rd32(r, off + 8);
@@ -133,8 +135,8 @@ void ui_process_events(DexCall &d) {
      * frame that had any event. The per-record breakdown was already gated;
      * now the summary line is too. */
     if (count != 0 && pvz2_config()->input) {
-        //d.c.log("[input] delivered %u event(s), %u bytes", (unsigned)count,
-                //(unsigned)records.size());
+        d.c.log("[input] delivered %u event(s), %u bytes", (unsigned)count,
+                (unsigned)records.size());
         /* Spell out every record. Needed whenever input "does nothing" -- it
          * separates "the host never sent it" from "the engine was handed it and
          * ignored it", which no amount of staring at the engine's handlers can
@@ -284,7 +286,8 @@ void fs_block_size(DexCall &d) { d.ret64(disk_space(d, 2)); }
  * store -- honour writes, answer reads and existence from what was written.
  *
  * It also survives across launches, and now so does this store: it is loaded
- * once from <save_dir>/prefs.dat and rewritten on every change, gated by
+ * once from <save_dir>/prefs.dat (or directly next to the .exe when save_dir is
+ * left at its default root path) and rewritten on every change, gated by
  * [game] persist_saves (on by default). That is what fixes the age gate --
  * without it the engine wrote the entered age, could read it back within the
  * session, but found the store empty on the next launch and asked again every
@@ -491,17 +494,29 @@ void config_write_boolean(DexCall &d) {
 void get_ui_orientation(DexCall &d) { d.ret(4); }
 void is_supported_orientation(DexCall &d) { d.ret_bool(true); }
 
-/* boolean Web_SysOpenURL(String) -- claiming success is closer to the truth
- * than a failure the engine would surface as an error dialog. */
+/* boolean Web_SysOpenURL(String) -- on Android this launches an external
+ * VIEW intent; here we open the host's default browser. */
 void open_url(DexCall &d) {
-    d.c.log("[dex] Web_SysOpenURL(\"%s\") ignored", d.string_arg(0).c_str());
-    d.ret_bool(true);
+    const std::string url = d.string_arg(0);
+    if (url.empty()) {
+        d.c.log("[dex] Web_SysOpenURL: empty URL");
+        d.ret_bool(false);
+        return;
+    }
+
+    if (SDL_OpenURL(url.c_str()) == 0) {
+        d.c.log("[dex] Web_SysOpenURL opened: %s", url.c_str());
+        d.ret_bool(true);
+    } else {
+        d.c.log("[dex] Web_SysOpenURL failed (%s): %s", SDL_GetError(), url.c_str());
+        d.ret_bool(false);
+    }
 }
 
 /* --- identity strings ---
  *
  * These end up in save files, analytics payloads and the version display. */
-void product_version(DexCall &d) { d.ret_string("1"); }
+void product_version(DexCall &d) { d.ret_string(pvz2_config()->product_version_string); }
 
 /* Everything below is a [game] key in config.ini rather than a literal here --
  * see config.h's package_name/activity_name/device_name/hardware_model/
@@ -533,11 +548,10 @@ void device_id(DexCall &d) { d.ret_string("UNKNOWN/EMULATOR"); } /* AndroidGameA
 /* String Util_GetUUIDString()
  *
  * Java answers with UUID.randomUUID().toString(). Unhooked it returned null,
- * and the engine builds std::strings out of these without checking. Fixed
- * rather than random on purpose: it identifies this installation, so a value
- * that changed every launch would make the game think it were a different
- * device each time. */
-void uuid_string(DexCall &d) { d.ret_string("6a8d1f2c-3b47-4e59-9c0a-pvz2native01"); }
+ * and the engine builds std::strings out of these without checking. We persist
+ * one generated value in config.ini so it stays stable for this installation
+ * but differs across fresh configs / machines. */
+void uuid_string(DexCall &d) { d.ret_string(pvz2_config()->player_uuid); }
 void os_version(DexCall &d) { d.ret_string(pvz2_config()->os_version); }
 void hardware_model(DexCall &d) { d.ret_string(pvz2_config()->hardware_model); }
 
