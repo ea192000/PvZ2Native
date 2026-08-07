@@ -1,11 +1,60 @@
 # PvZ2Native
 
-📖 [Español](readme_spanish.md) · **English**
+📖 [Español](README_SPANISH.md) · **English**
 
 **Runs the real native library of *Plants vs. Zombies 2* for Android (`libPVZ2.so`, ARM32) on PC.** The only thing that is emulated is the **CPU**: PvZ2 exists only compiled for ARM (there is no x86/x64 build), so a JIT translates its ARM instructions to x86_64. Everything else — Android, JNI, libc, OpenGL ES, the filesystem — **is not emulated, it is reimplemented natively**, the same way **Wine** does with Windows.
 
+This repository is a customized branch of [OptiJuegos/PvZ2Native](https://github.com/OptiJuegos/PvZ2Native) with PC-focused improvements (in-game settings, keyboard shortcuts, controller support, quit confirm, and more). Upstream source: https://github.com/OptiJuegos/PvZ2Native
+
 > [!WARNING]
-> Experimental project under active development. It boots as far as the main-menu load; rendering, audio and input are work in progress. **The game is not included**: you must supply your own `libPVZ2.so` and your own `.obb`.
+> Experimental project. **The game is not included**: you must supply your own `libPVZ2.so` and your own `.obb`, obtained legally from the Android release.
+
+---
+
+## ✨ What's included in this build
+
+Aimed at *Plants vs. Zombies 2: It's About Time* **v4.5.2** on Windows and Linux, with a smoother mouse / keyboard / controller experience.
+
+### Visual and desktop integration
+- Custom executable icon and custom cursor (scales with window/screen size).
+- Startup splash and loading progress overlay (avoids a long black screen).
+- On Windows, improved executable version metadata.
+
+### In-game settings
+- Open from the main menu via the **Google Play** button (bottom-right).
+- Change language, currency, fullscreen, FPS limit, free purchases, keyboard shortcuts, and controller options without editing files by hand.
+- Most changes apply immediately. Changing language relaunches the process so string tables reload correctly.
+- Older or incomplete `config.ini` files are healed on launch: missing keys get safe defaults; invalid values are corrected.
+
+### Exit confirmation
+- Confirm or cancel before quitting (mouse, keyboard, or controller).
+- `Esc` always opens this dialog (fixed, not remappable). `F11` always toggles fullscreen.
+
+### Configuration
+- First-run auto-detection for language, currency, and related values.
+- Console/log window hidden by default (`[log] console = 0`).
+- Everyday options belong in the settings screen; advanced keys remain available in `config.ini`.
+- Command-line overrides for almost all options, e.g. `--fullscreen=0`, `--video.fullscreen=0`, `--console=1`.
+
+### Keyboard and mouse
+- Configurable shortcuts that simulate taps on screen (touch-era UI).
+- Defaults include: `1`–`8` plant slots, `Space` speed, `Enter` pause, `F` Plant Food, `S` shovel, `Q`/`W`/`E` powers, `R` replay, `Backspace` back, plus almanac / connect / vasebreaker / zen binds.
+- Edit shortcuts from the settings screen.
+- Mouse-wheel list scrolling (touch-drag simulation), right-click = Back, middle-click = Menu where supported.
+- Fullscreen / resize click mapping fixes and defensive input recovery.
+
+### Controller
+- Left stick moves the cursor; **A** confirms/clicks.
+- D-pad jumps between on-screen controls and lawn cells; shoulders switch menu areas.
+- Right stick drag (swipe-like); remappable actions (pause, powers, Plant Food, shovel, …).
+- Stick speed and deadzone sliders; pick which pad to use or disable pads.
+- Mouse, keyboard, and controller work together.
+
+### Other
+- More reliable text fields (click outside to leave typing mode).
+- Improved frame-limiter pacing and quieter output when logging is off.
+- External Help / License / Privacy links open in the system browser.
+- Persistent per-installation player ID.
 
 ---
 
@@ -39,7 +88,7 @@ This is exactly **Wine's** approach — *"Wine Is Not an Emulator"* — taken on
                         │
                         ▼
 ┌──────────────────────────────────────────────┐
-│   Windows x64  ·  SDL2  ·  OpenGL 2.0 (glad)  │
+│   Windows / Linux x64  ·  SDL2  ·  OpenGL 2.0 │
 └──────────────────────────────────────────────┘
 ```
 
@@ -74,10 +123,10 @@ Notable pieces:
 
 The version is detected by a **byte fingerprint** at two known native functions; if none matches, boot is refused rather than running blind.
 
-| Version | APK / OBB | Status |
+| Version | Typical OBB | Status |
 | --- | --- | --- |
-| **1.6.10** (2013) | `main.7.com.ea.game.pvz2_na.obb` | 🟢 Boots to the menu |
-| **4.5.2** (2016) | `main.147.com.ea.game.pvz2_row.obb` | 🟢 Boots to the menu |
+| **1.6.10** (2013) | `main.7.com.ea.game.pvz2_na.obb` | 🟢 Playable |
+| **4.5.2** (2016) | `main.147.com.ea.game.pvz2_row.obb` (often shipped / renamed as `data.obb`) | 🟢 Playable (primary target of this build) |
 
 Adding a new version = one entry in `kVersions` in [symbols.cpp](pvz2native/src/game/symbols.cpp). Nothing in `runtime/` or `engine/` changes between versions.
 
@@ -86,151 +135,122 @@ Adding a new version = one entry in `kVersions` in [symbols.cpp](pvz2native/src/
 ## ⚙️ Requirements
 
 - **(64-bit) Windows or Linux** (the executable is static x86_64; there is no 32-bit build — dynarmic only ships backends for x86_64/arm64/riscv64).
-- **CMake** (3.1+).
-- **Windows:** MinGW-w64 (GCC with C++20 support).
+- **CMake** (3.5+ recommended).
+- **Windows:** MinGW-w64 (GCC with C++20) **or** Visual Studio with C++ / CMake / Ninja (`compile-ninja.bat`).
 - **Linux:** GCC or Clang with C++20 support.
 - A **GPU with OpenGL 2.0** or higher.
-- Your own copy of **`libPVZ2.so`** and the matching **`.obb`**, extracted from the Android game.
+- Your own copy of **`libPVZ2.so`** (armeabi-v7a) and the matching **`.obb`**.
+- **Boost headers** under `third_party/boost_1_84_0` (as used by the build scripts).
 
 ---
 
 ## 🔨 Building
 
-The project builds with CMake.
-### Windows (MinGW)
-The quick way is [compile.bat](compile.bat):
+### Windows — Visual Studio + Ninja (recommended)
+
+```bat
+compile-ninja.bat
+```
+
+Uses `vswhere` to find Visual Studio (any edition), then builds a Release x64 binary with Ninja. Output:
+
+```text
+out\build\x64-Release\pvz2native\pvz2.exe
+```
+
+### Windows — MinGW
+
+If `gcc`, `g++`, and `make` are on your `PATH`:
+
 ```bat
 compile.bat
 ```
 
 > [!NOTE]
-> `compile.bat` has toolchain paths **hardcoded to the author's machine** (`CMAKE_C_COMPILER`, `CMAKE_MAKE_PROGRAM`, `BOOST_ROOT`, `Python_EXECUTABLE`). Adjust them to your own before using it, or invoke CMake by hand:
+> `compile-hardcoded.bat` is a machine-specific MinGW helper (absolute toolchain paths). Prefer `compile.bat` or `compile-ninja.bat`.
 
-```bash
-mkdir build && cd build
-cmake -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release ..
-cmake --build .
-```
-
-The executable ends up at:
+Output:
 
 ```text
-build/pvz2native/pvz2native.exe
-```
-
-Incremental rebuild (after the first `cmake`):
-
-```bash
-cd build
-make pvz2native      # with the MinGW make
+build\pvz2native\pvz2.exe
 ```
 
 ### Linux
-The quick way is [compile.sh](compile.sh):
 
 ```bash
 ./compile.sh
 ```
 
-`compile.sh` checks for the required tools (`cmake`, a C++ compiler, `make`/`ninja`, `unzip`), configures a Release build, compiles the project and copies or extracts the game assets from `game/` when they are present. By default full build output is saved to `build/compile.log` and a short summary is printed at the end.
+Useful options: `--clean`, `--debug`, `--jobs N`, `--no-assets`, `--verbose`, `--help`.
 
-Useful options:
-
-| Option | Description |
-| --- | --- |
-| `-c, --clean` | Delete `build/` before configuring |
-| `-d, --debug` | Configure a Debug build |
-| `-r, --release` | Configure a Release build (default) |
-| `-j, --jobs N` | Compile with `N` parallel jobs |
-| `-n, --no-assets` | Skip copying/extracting game assets |
-| `-v, --verbose` | Print CMake/build output to the terminal |
-| `-h, --help` | Show all options |
-
-Examples:
-
-```bash
-./compile.sh                  # standard Release build
-./compile.sh --debug --clean  # clean Debug build
-./compile.sh --jobs 4         # Release build with 4 parallel jobs
-./compile.sh --no-assets      # build only, do not touch game files
-```
-
-Or by hand:
-
-```bash
-mkdir build && cd build
-cmake -DCMAKE_BUILD_TYPE=Release ..
-cmake --build .
-```
-
-The executable ends up at:
+Output:
 
 ```text
-build/pvz2native/pvz2native
+build/pvz2native/pvz2
 ```
 
-Incremental rebuild (after the first `cmake`):
-
-```bash
-cd build
-make pvz2native
-```
+`compile.sh` also copies host UI assets to `build/pvz2native/assets/` (splash, settings art, cursor). On Windows those files are embedded in the `.exe` via `windows_resources.rc`; on Linux they must sit next to the binary under `assets/`.
 
 ---
 
 ## ▶️ Running
 
-1. Place the game files next to the executable, by default in a `lib/` folder:
+Place the Android game files **next to the executable** (not in a `lib/` subfolder). Defaults resolve to `libPVZ2.so` and `data.obb` in that same folder:
 
-   ```text
-   build/pvz2native/
-   ├── pvz2native(.exe)
-   ├── config.ini            (generated automatically on first launch)
-   └── lib/
-       ├── libPVZ2.so
-       └── main.7.com.ea.game.pvz2_na.obb
-   ```
+```text
+<folder with pvz2 / pvz2.exe>/
+├── pvz2(.exe)
+├── config.ini                 ← created / healed on first launch
+├── libPVZ2.so                 ← required (armeabi-v7a)
+├── data.obb                   ← required (or set [paths] obb to your OBB name)
+└── assets/                    ← Linux: UI/splash/cursor (Windows: embedded in the exe)
+```
 
-2. Run `pvz2native(.exe)`. On the first launch it writes a `config.ini` with every option documented and turned off.
-
-If your files live elsewhere or you want to try 4.5.2, edit `config.ini`:
+You can keep the original OBB filename and point to it in `config.ini`:
 
 ```ini
 [paths]
-so  = lib/libPVZ2.so
-obb = lib/main.7.com.ea.game.pvz2_na.obb
+so  = libPVZ2.so
+obb = main.147.com.ea.game.pvz2_row.obb
 ```
+
+Relative paths are resolved against the folder that contains the executable. Absolute paths are also accepted.
+
+On first launch the host writes a documented `config.ini`. Everyday options are meant to be changed from the in-game settings screen; advanced keys stay in the file / CLI.
 
 ---
 
 ## 🔧 Configuration (`config.ini`)
 
-Single source of truth for paths and debugging (the old `PVZ2_*` environment variables are no longer read). Excerpt of the most useful sections:
+Single source of truth for paths and debugging (legacy `PVZ2_*` environment variables are not read). Excerpt:
 
 | Section | Key | What it does |
 | --- | --- | --- |
 | `[paths]` | `so`, `obb` | Paths to the `.so` and `.obb` (relative to the executable, or absolute). |
-| `[log]` | `verbose` | One banner per `.init_array` entry and lifecycle call. |
-| `[log]` | `trace` | Per-import-call trace. **Very loud** (~57 MB of stdout per run). |
-| `[log]` | `pc_sample` | PC sampling / hot-frame slicing. |
-| `[gl]` | `strict` | Queries GL state after every suspicious call and reports mismatches. |
-| `[gl]` | `debug_clear` | A loud clear colour instead of the engine's opaque black. |
-| `[runtime]` | `heap_quarantine` | Holds the N most-recently-freed blocks out of the reuse pool (hunts use-after-free). |
-| `[game]` | `user_locale` | The locale the game is told about, e.g. `en_US`. |
+| `[paths]` | `save` | Optional save folder; unset stores `prefs.dat` next to the exe. |
+| `[log]` | `console` | Show console/log output (default `0`). |
+| `[log]` | `verbose` / `trace` / `input` | Boot / import / input diagnostics. |
+| `[video]` | `fullscreen`, `width`, `height`, `fps_limit` | Display (also in settings UI). |
+| `[game]` | `user_locale`, `currency_*`, `emulate_iap` | Locale, store cosmetics, free IAP (also in settings UI). |
+| `[shortcuts]` | `bind_*` | Keyboard → on-screen tap (also in settings UI). |
+| `[board]` / `[gamepad]` / `[gamepad_binds]` | … | Controller focus grid and binds (also in settings UI). |
 
 ---
 
-## ⌨️ Controls
+## ⌨️ Controls (host)
 
 | Action | Control |
 | --- | --- |
-| Tap / select | Left click |
-| Drag (swipe) | Left click + move |
-| Type text | Keyboard (only when the game opens a field) |
-| Confirm / Delete | `Enter` / `Backspace` |
-| **Quit** | `ESC` or close the window |
+| Tap / select | Left click (or controller **A**) |
+| Drag (swipe) | Left click + move (or right stick) |
+| Scroll lists | Mouse wheel |
+| Back (menus) | Right click / `Backspace` / controller Back (quit confirm in-game) |
+| Quit confirm | `Esc` (fixed) |
+| Toggle fullscreen | `F11` (fixed) |
+| Settings | Google Play button on the main menu |
+| Shortcuts / pad | Configurable in settings |
 
-The window is resizable: the scene renders at a fixed resolution and the compositor scales it, remapping clicks back into the game's space.
+The window is resizable: the scene renders at a fixed resolution and the compositor scales it, remapping input into the game's space.
 
 ---
 
@@ -241,11 +261,12 @@ The window is resizable: the scene renders at a fixed resolution and the composi
 | `.so` loading and engine boot | 🟢 |
 | Lifecycle (init / surface / frames) | 🟢 |
 | Resource loading (RSB/RSG from `.obb`) | 🟢 |
-| Native imports (libc/libm/GLES/…) | 🟢 All have a handler |
-| Rendering | 🟡 In progress |
-| Audio (OpenSL ES → SDL) | 🟡 In progress |
-| Input (touch/mouse/keyboard) | 🟡 In progress |
-| Saving and online services | 🔴 Not implemented (deliberately offline) |
+| Native imports (libc/libm/GLES/…) | 🟢 |
+| Rendering | 🟢 |
+| Audio (OpenSL ES → SDL) | 🟢 |
+| Input (mouse / keyboard / controller) | 🟢 |
+| In-game settings / quit confirm | 🟢 |
+| Online services | 🔴 Not implemented (deliberately offline) |
 
 ---
 
@@ -253,22 +274,24 @@ The window is resizable: the scene renders at a fixed resolution and the composi
 
 ```text
 PvZ2Native/
-├── pvz2native/            ← this project's code
+├── pvz2native/            ← host / compatibility layer
 │   ├── src/
-│   │   ├── runtime/       ← JIT (dynarmic), GuestHeap, threads, synchronization, RSB
-│   │   ├── dependencies/  ← one module per Android .so (libc, libm, GLES, …) + VFS
-│   │   ├── dex/           ← fake JNIEnv/JavaVM + per-Java-class hooks
+│   │   ├── runtime/       ← JIT (dynarmic), GuestHeap, threads, sync, RSB
+│   │   ├── dependencies/  ← one module per Android .so + VFS
+│   │   ├── dex/           ← fake JNIEnv/JavaVM + per-class hooks
 │   │   ├── engine/        ← boot / lifecycle / frame
 │   │   ├── game/          ← symbols.cpp: addresses per binary version
-│   │   ├── diagnostics/   ← watchpoints, probes, PC sampling
+│   │   ├── diagnostics/
 │   │   ├── gfx/, audio/, input/, patch/, elf32/
-│   │   ├── config.cpp     ← config.ini reader
-│   │   └── main.c         ← SDL window + frame loop
+│   │   ├── config.cpp / config_screen.cpp
+│   │   └── main.c
+│   ├── windows_resources.rc
 │   └── include/pvz2native/
-├── dynarmic/              ← ARM JIT (submodule/dependency)
-├── SDL/  glad/  zlib/  stb/  third_party/
-├── compile.bat           ← MinGW build
-├── compile.sh            ← Linux build
+├── assets/                ← splash, settings UI, cursor (embedded on Windows; copied on Linux)
+├── dynarmic/  SDL/  glad/  zlib/  stb/  third_party/
+├── compile-ninja.bat      ← Windows VS + Ninja
+├── compile.bat            ← Windows MinGW (PATH)
+├── compile.sh             ← Linux
 ├── CMakeLists.txt
 └── README.md
 ```
@@ -277,7 +300,7 @@ PvZ2Native/
 
 ## 📜 License
 
-Code under the **MIT license** (see [LICENSE](LICENSE)). The project reuses third-party emulation infrastructure (dynarmic, SDL, zlib, glad, stb), each with its own license.
+Code under the **MIT license** (see [LICENSE](LICENSE)). The project reuses third-party infrastructure (dynarmic, SDL, zlib, glad, stb), each with its own license.
 
 **Plants vs. Zombies 2**, its trademarks and all its assets belong to **Electronic Arts / PopCap Games**. This project **does not distribute or replace** any game file: you must supply your own, obtained legally.
 
