@@ -234,7 +234,7 @@ int pvz2_config_update_gamepad_stick_param(int which, float value, int persist);
 void pvz2_reload_shortcuts(void);
 
 /* Writes the settings-overlay fields into the in-memory config. Does not touch
- * disk. Returns 1 if user_locale changed (the game text tables need a restart),
+ * disk. Returns 1 if a restart is required (locale or emulate_iap changed),
  * 0 if everything else can be applied live. */
 int pvz2_config_apply_overlay_settings(int fullscreen, int width, int height,
                                        int fps_limit, const char *locale,

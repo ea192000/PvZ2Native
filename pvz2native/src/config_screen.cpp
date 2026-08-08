@@ -159,6 +159,7 @@ struct Strings {
 	const char *lang_fr;
 	const char *lang_de;
 	const char *lang_pt;
+	const char *lang_it;
 	/* currency names (human-readable) */
 	const char *cur_usd;
 	const char *cur_eur;
@@ -193,7 +194,7 @@ static const Strings kStringsEN = {
 	"On", "Off",
 	"Fullscreen",
 	"Unlimited",
-	"English","Spanish","French","German","Portuguese",
+	"English","Spanish","French","German","Portuguese","Italian",
 	"Dollar","Euro","Pound","Real","Peso",
 	"Input Configuration",
 	"Gamepad Configuration", "Selected Gamepad", "Disabled",
@@ -211,7 +212,7 @@ static const Strings kStringsES = {
 	"Activado", "Desactivado",
 	"Pantalla completa",
 	"Sin límite",
-	"Inglés","Español","Francés","Alemán","Portugués",
+	"Inglés","Español","Francés","Alemán","Portugués","Italiano",
 	"Dólar","Euro","Libra","Real","Peso",
 	"Configuración de entrada",
 	"Configuración de mando", "Mando seleccionado", "Desactivado",
@@ -229,7 +230,7 @@ static const Strings kStringsFR = {
 	"Activé", "Désactivé",
 	"Plein écran",
 	"Illimité",
-	"Anglais","Espagnol","Français","Allemand","Portugais",
+	"Anglais","Espagnol","Français","Allemand","Portugais","Italien",
 	"Dollar","Euro","Livre","Réal","Peso",
 	"Configuration des touches",
 	"Configuration de la manette", "Manette sélectionnée", "Désactivée",
@@ -247,7 +248,7 @@ static const Strings kStringsDE = {
 	"Ein", "Aus",
 	"Vollbild",
 	"Unbegrenzt",
-	"Englisch","Spanisch","Französisch","Deutsch","Portugiesisch",
+	"Englisch","Spanisch","Französisch","Deutsch","Portugiesisch","Italienisch",
 	"Dollar","Euro","Pfund","Real","Peso",
 	"Eingabe-Konfiguration",
 	"Controller-Konfiguration", "Ausgewählter Controller", "Deaktiviert",
@@ -265,7 +266,7 @@ static const Strings kStringsPT = {
 	"Ativado", "Desativado",
 	"Tela cheia",
 	"Ilimitado",
-	"Inglês","Espanhol","Francês","Alemão","Português",
+	"Inglês","Espanhol","Francês","Alemão","Português","Italiano",
 	"Dólar","Euro","Libra","Real","Peso",
 	"Configuração de entrada",
 	"Configuração do controle", "Controle selecionado", "Desativado",
@@ -277,6 +278,24 @@ static const Strings kStringsPT = {
 	"sair do jogo?",
 	"SAIR", "CANCELAR"
 };
+static const Strings kStringsIT = {
+	"Configurazione",
+	"Risoluzione", "Frequenza di aggiornamento", "Lingua", "Valuta", "Acquisti gratuiti",
+	"Attivato", "Disattivato",
+	"Schermo intero",
+	"Illimitato",
+	"Inglese","Spagnolo","Francese","Tedesco","Portoghese","Italiano",
+	"Dollaro","Euro","Sterlina","Real","Peso",
+	"Configurazione dei comandi",
+	"Configurazione del controller", "Controller selezionato", "Disattivato",
+	"Velocità", "Zona morta", "Nessuno",
+	"Pulsante B", "Pulsante X", "Pulsante Y", "Pulsante L3", "Pulsante R3",
+	"Esci dal gioco", "SALVA",
+	"Esci dal gioco",
+	"Sei sicuro di voler",
+	"uscire dal gioco?",
+	"ESCI", "ANNULLA"
+};
 
 static const Strings *get_strings(const char *locale) {
 	if (!locale || !locale[0]) return &kStringsEN;
@@ -284,6 +303,7 @@ static const Strings *get_strings(const char *locale) {
 	if (strncmp(locale, "fr", 2) == 0) return &kStringsFR;
 	if (strncmp(locale, "de", 2) == 0) return &kStringsDE;
 	if (strncmp(locale, "pt", 2) == 0) return &kStringsPT;
+	if (strncmp(locale, "it", 2) == 0) return &kStringsIT;
 	return &kStringsEN;
 }
 
@@ -295,30 +315,31 @@ struct BindLabel {
 	const char *fr;
 	const char *de;
 	const char *pt;
+	const char *it;
 };
 
 static const BindLabel kBindLabels[] = {
-	{"plant_1",     "Plant 1",      "Planta 1",       "Plante 1",        "Pflanze 1",         "Planta 1"},
-	{"plant_2",     "Plant 2",      "Planta 2",       "Plante 2",        "Pflanze 2",         "Planta 2"},
-	{"plant_3",     "Plant 3",      "Planta 3",       "Plante 3",        "Pflanze 3",         "Planta 3"},
-	{"plant_4",     "Plant 4",      "Planta 4",       "Plante 4",        "Pflanze 4",         "Planta 4"},
-	{"plant_5",     "Plant 5",      "Planta 5",       "Plante 5",        "Pflanze 5",         "Planta 5"},
-	{"plant_6",     "Plant 6",      "Planta 6",       "Plante 6",        "Pflanze 6",         "Planta 6"},
-	{"plant_7",     "Plant 7",      "Planta 7",       "Plante 7",        "Pflanze 7",         "Planta 7"},
-	{"plant_8",     "Plant 8",      "Planta 8",       "Plante 8",        "Pflanze 8",         "Planta 8"},
-	{"replay",      "Replay",       "Repetir",        "Rejouer",         "Wiederholen",       "Repetir"},
-	{"speed",       "Speed",        "Velocidad",      "Vitesse",         "Geschwindigkeit",   "Velocidade"},
-	{"pause",       "Pause",        "Pausa",          "Pause",           "Pause",             "Pausa"},
-	{"plant_food",  "Plant Food",   "Nutriente",      "Engrais",         "Pflanzennahrung",   "Adubo"},
-	{"power_1",     "Power 1",      "Poder 1",        "Pouvoir 1",       "Power 1",           "Poder 1"},
-	{"power_2",     "Power 2",      "Poder 2",        "Pouvoir 2",       "Power 2",           "Poder 2"},
-	{"power_3",     "Power 3",      "Poder 3",        "Pouvoir 3",       "Power 3",           "Poder 3"},
-	{"shovel",      "Shovel",       "Pala",           "Pelle",           "Schaufel",          "Pá"},
-	{"back",        "Back",         "Atrás",          "Retour",          "Zurück",            "Voltar"},
-	{"almanaq",     "Almanac",      "Almanaque",      "Almanach",        "Almanach",          "Almanaque"},
-	{"connect",     "Connect",      "Conectar",       "Connexion",       "Verbinden",         "Conectar"},
-	{"vasebreaker", "Vasebreaker",  "Rompejarrones",  "Casse-vases",     "Vasenbrecher",      "Quebra-vasos"},
-	{"zen_garden",  "Zen Garden",   "Jardín Zen",     "Jardin Zen",      "Zen-Garten",        "Jardim Zen"},
+	{"plant_1",     "Plant 1",      "Planta 1",       "Plante 1",        "Pflanze 1",         "Planta 1",       "Pianta 1"},
+	{"plant_2",     "Plant 2",      "Planta 2",       "Plante 2",        "Pflanze 2",         "Planta 2",       "Pianta 2"},
+	{"plant_3",     "Plant 3",      "Planta 3",       "Plante 3",        "Pflanze 3",         "Planta 3",       "Pianta 3"},
+	{"plant_4",     "Plant 4",      "Planta 4",       "Plante 4",        "Pflanze 4",         "Planta 4",       "Pianta 4"},
+	{"plant_5",     "Plant 5",      "Planta 5",       "Plante 5",        "Pflanze 5",         "Planta 5",       "Pianta 5"},
+	{"plant_6",     "Plant 6",      "Planta 6",       "Plante 6",        "Pflanze 6",         "Planta 6",       "Pianta 6"},
+	{"plant_7",     "Plant 7",      "Planta 7",       "Plante 7",        "Pflanze 7",         "Planta 7",       "Pianta 7"},
+	{"plant_8",     "Plant 8",      "Planta 8",       "Plante 8",        "Pflanze 8",         "Planta 8",       "Pianta 8"},
+	{"replay",      "Replay",       "Repetir",        "Rejouer",         "Wiederholen",       "Repetir",        "Rigioca"},
+	{"speed",       "Speed",        "Velocidad",      "Vitesse",         "Geschwindigkeit",   "Velocidade",     "Velocità"},
+	{"pause",       "Pause",        "Pausa",          "Pause",           "Pause",             "Pausa",          "Pausa"},
+	{"plant_food",  "Plant Food",   "Nutriente",      "Engrais",         "Pflanzennahrung",   "Adubo",          "Ricostituente"},
+	{"power_1",     "Power 1",      "Poder 1",        "Pouvoir 1",       "Power 1",           "Poder 1",        "Potere 1"},
+	{"power_2",     "Power 2",      "Poder 2",        "Pouvoir 2",       "Power 2",           "Poder 2",        "Potere 2"},
+	{"power_3",     "Power 3",      "Poder 3",        "Pouvoir 3",       "Power 3",           "Poder 3",        "Potere 3"},
+	{"shovel",      "Shovel",       "Pala",           "Pelle",           "Schaufel",          "Pá",             "Pala"},
+	{"back",        "Back",         "Atrás",          "Retour",          "Zurück",            "Voltar",         "Indietro"},
+	{"almanaq",     "Almanac",      "Almanaque",      "Almanach",        "Almanach",          "Almanaque",      "Almanacco"},
+	{"connect",     "Connect",      "Conectar",       "Connexion",       "Verbinden",         "Conectar",       "Connetti"},
+	{"vasebreaker", "Vasebreaker",  "Rompejarrones",  "Casse-vases",     "Vasenbrecher",      "Quebra-vasos",   "Spaccavasi"},
+	{"zen_garden",  "Zen Garden",   "Jardín Zen",     "Jardin Zen",      "Zen-Garten",        "Jardim Zen",     "Giardino Zen"},
 };
 
 /* Title-Case fallback: "zen_garden" → "Zen Garden" (existing behaviour). */
@@ -343,6 +364,7 @@ static const char *lookup_bind_label(const char *name, const char *locale) {
 		if (locale && strncmp(locale, "fr", 2) == 0) return bl.fr;
 		if (locale && strncmp(locale, "de", 2) == 0) return bl.de;
 		if (locale && strncmp(locale, "pt", 2) == 0) return bl.pt;
+		if (locale && strncmp(locale, "it", 2) == 0) return bl.it;
 		return bl.en;
 	}
 	return nullptr;
@@ -839,7 +861,8 @@ static float sc(float ref, float scale) { return ref * scale; }
 
 /* Draw a string using the stb_truetype atlas.
  * is_header=true uses the header bake; false uses the item bake.
- * y is the BASELINE in screen pixels (top-down ortho). */
+ * y is the BASELINE in screen pixels (top-down ortho).
+ * font_mul scales glyphs relative to the normal UI font size (1 = full size). */
 static float draw_string(Font &font, const char *text, bool is_header,
 					 float x, float y,
 					 float cr, float cg, float cb,
@@ -848,14 +871,15 @@ static float draw_string(Font &font, const char *text, bool is_header,
 					 float outline_px = 0, float shadow_alpha = 0.25f,
 					 float text_alpha = 1.0f,
 					 float fade_list_top = 0, float fade_list_bot = 0,
-					 float fade_solid = 0, float fade_end = 0) {
+					 float fade_solid = 0, float fade_end = 0,
+					 float font_mul = 1.0f) {
 	if (!font.ok || !text || text_alpha <= 0.0f) return x;
 	(void)outline_px;
 	const bool do_fade = (fade_end > fade_solid);
 
 	/* Scale factor: font was baked at reference resolution kRefW x kRefH.
 	 * Use the same uniform scale as all other UI elements. */
-	const float scale = ui_scale(win_w, win_h);
+	const float scale = ui_scale(win_w, win_h) * (font_mul > 0.0f ? font_mul : 1.0f);
 
 	glBindTexture(GL_TEXTURE_2D, font.atlas_tex);
 	/* GL_ALPHA texture + GL_MODULATE: vertex color passes through, vertex alpha
@@ -928,9 +952,10 @@ static float draw_string(Font &font, const char *text, bool is_header,
 }
 
 /* Measure text width in scaled screen pixels */
-static float measure_string(Font &font, const char *text, bool is_header, float win_w, float win_h) {
+static float measure_string(Font &font, const char *text, bool is_header, float win_w, float win_h,
+							float font_mul = 1.0f) {
 	if (!font.ok || !text) return 0;
-	const float scale = ui_scale(win_w, win_h);
+	const float scale = ui_scale(win_w, win_h) * (font_mul > 0.0f ? font_mul : 1.0f);
 	stbtt_bakedchar *bc = is_header ? font.glyphs_header : font.glyphs_item;
 	float w = 0;
 	const char *p = text;
@@ -1193,7 +1218,7 @@ struct EditConfig {
 	char locale[32]   = "en_US";
 	char cur_symbol[8]  = "$";
 	char cur_code[8]    = "USD";
-	int  emulate_iap  = 1;
+	int  emulate_iap  = 0;
 
 	void load_from_live() {
 		const pvz2_config_t *c = pvz2_config();
@@ -1598,6 +1623,7 @@ static std::vector<Item> build_items(Screen screen, const Strings *str) {
         else if (strncmp(g_edit.locale,"fr",2)==0) lang_name=str->lang_fr;
         else if (strncmp(g_edit.locale,"de",2)==0) lang_name=str->lang_de;
         else if (strncmp(g_edit.locale,"pt",2)==0) lang_name=str->lang_pt;
+        else if (strncmp(g_edit.locale,"it",2)==0) lang_name=str->lang_it;
         items.push_back({str->language, true, false, false, lang_name});
 
         const char *cur_name = str->cur_usd;
@@ -1638,6 +1664,7 @@ static std::vector<Item> build_items(Screen screen, const Strings *str) {
             {str->lang_fr, "fr_FR"},
             {str->lang_de, "de_DE"},
             {str->lang_pt, "pt_BR"},
+            {str->lang_it, "it_IT"},
         };
         for (auto &o : opts)
             items.push_back({o.first, false, false, strcmp(g_edit.locale,o.second)==0, ""});
@@ -1763,7 +1790,7 @@ static void load_resources(float win_w, float win_h) {
 }
 
 /* -------------------------------------------------------------------------
- * Config persistence + live apply (relaunch only when locale changes)
+ * Config persistence + live apply (relaunch when locale or emulate_iap changes)
  * ---------------------------------------------------------------------- */
 static void write_overlay_settings_to_ini(void) {
 	char *base = SDL_GetBasePath();
@@ -1888,8 +1915,8 @@ static void relaunch_process(void) {
 	exit(0);
 }
 
-/* Persist to config.ini always. Hot-apply when possible; relaunch only if the
- * game locale changed (string tables are loaded at boot). */
+/* Persist to config.ini always. Hot-apply when possible; relaunch if the game
+ * locale or emulate_iap changed (both need a fresh session). */
 static void apply_settings_and_close(void) {
 	const pvz2_config_t *live = pvz2_config();
 	const bool video_changed =
@@ -1997,6 +2024,10 @@ static void do_quit_now(void) {
 	g_quit_confirm = false;
 	g_quit_btn_pressed = false;
 	g_cancel_btn_pressed = false;
+	/* Settings may still be open with pending edits that were already written
+	 * on each click; flush once more so a quit never loses the last change. */
+	if (g_open)
+		write_overlay_settings_to_ini();
 	/* After boot: return to the main loop for a clean session_end. Calling
 	 * exit(0) here leaves dynarmic JIT threads alive and often ends in
 	 * "Unhandled SIGSEGV" on Linux. During splash/boot there is no loop yet. */
@@ -2260,11 +2291,32 @@ static void draw_panel_content(Screen screen, float dx,
     }
 
     if (g_font.ok) {
-        float tw = measure_string(g_font, title, true, win_w, win_h);
+        /* Shrink the title if it would overlap the close (main) or back (sub) button. */
+        const float gap = sc(14.0f, s);
+        float left_lim = px + gap + dx;
+        float right_lim = px + pw - gap + dx;
+        if (screen == Screen::Main && g_tex_close_up.id) {
+            float bw = sc((float)g_tex_close_up.w, s);
+            right_lim = px + pw - sc(kCloseBtnFromRight, s) - bw - gap + dx;
+            /* Keep the title visually centered: mirror the same clearance on the left. */
+            left_lim = px + sc(kCloseBtnFromRight, s) + bw + gap + dx;
+        } else if (screen != Screen::Main && g_tex_back_up.id) {
+            float bw = sc((float)g_tex_back_up.w, s);
+            left_lim = px + sc(kBackBtnFromLeft, s) + bw + gap + dx;
+            right_lim = px + pw - (sc(kBackBtnFromLeft, s) + bw + gap) + dx;
+        }
+        float max_w = right_lim - left_lim;
+        float title_mul = 1.0f;
+        float tw = measure_string(g_font, title, true, win_w, win_h, title_mul);
+        if (max_w > 1.0f && tw > max_w)
+            title_mul = max_w / tw;
+        if (title_mul < 0.45f) title_mul = 0.45f;
+        tw = measure_string(g_font, title, true, win_w, win_h, title_mul);
         float tx = px + (pw - tw) * 0.5f + dx;
         float ty = py + sc(kHeaderBaselineY, s);
         draw_string(g_font, title, true, tx, ty, 0xfd/255.f, 0xdc/255.f, 0x67/255.f,
-                win_w, win_h, true, sc(5,s), sc(5,s), sc(2,s));
+                win_w, win_h, true, sc(5,s) * title_mul, sc(5,s) * title_mul, sc(2,s) * title_mul,
+                0.25f, 1.0f, 0, 0, 0, 0, title_mul);
     }
 
     /* --- list background --- */
@@ -2743,7 +2795,7 @@ static void handle_event(const SDL_Event *e) {
 		for (int v : opts)
 			ritems.push_back({false,false,false,false,-1,0,0,0,v,nullptr,nullptr,nullptr});
 	} else if (g_screen == Screen::Language) {
-		static const char *locs_r[] = {"en_US","es_ES","fr_FR","de_DE","pt_BR"};
+		static const char *locs_r[] = {"en_US","es_ES","fr_FR","de_DE","pt_BR","it_IT"};
 		for (const char *l : locs_r) ritems.push_back({false,false,false,false,-1,0,0,0,0,l,nullptr,nullptr});
 	} else if (g_screen == Screen::Currency) {
 		for (int i = 0; i < kCurrencyOptCount; ++i)
@@ -3101,6 +3153,7 @@ static void handle_event(const SDL_Event *e) {
 					/* IAP toggle */
 					if (i == 6) {
 						g_edit.emulate_iap = !g_edit.emulate_iap;
+						write_overlay_settings_to_ini();
 					}
 				} else if (g_screen == Screen::Resolution) {
 					const std::vector<ResOpt> ropts = filtered_res_opts(
@@ -3109,18 +3162,25 @@ static void handle_event(const SDL_Event *e) {
 						g_edit.fullscreen   = ropts[i].fs;
 						g_edit.video_width  = ropts[i].w;
 						g_edit.video_height = ropts[i].h;
+						write_overlay_settings_to_ini();
 					}
 				} else if (g_screen == Screen::Fps) {
 					const std::vector<int> fopts = filtered_fps_opts(g_edit.fps_limit);
-					if (i < fopts.size())
+					if (i < fopts.size()) {
 						g_edit.fps_limit = fopts[i];
+						write_overlay_settings_to_ini();
+					}
 				} else if (g_screen == Screen::Language) {
-					static const char *locs_h[] = {"en_US","es_ES","fr_FR","de_DE","pt_BR"};
-					if (i < 5) SDL_strlcpy(g_edit.locale, locs_h[i], sizeof(g_edit.locale));
+					static const char *locs_h[] = {"en_US","es_ES","fr_FR","de_DE","pt_BR","it_IT"};
+					if ((size_t)i < sizeof(locs_h)/sizeof(locs_h[0])) {
+						SDL_strlcpy(g_edit.locale, locs_h[i], sizeof(g_edit.locale));
+						write_overlay_settings_to_ini();
+					}
 				} else if (g_screen == Screen::Currency) {
 					if (i < kCurrencyOptCount) {
 						SDL_strlcpy(g_edit.cur_symbol, kCurrencyOpts[i].sym,  sizeof(g_edit.cur_symbol));
 						SDL_strlcpy(g_edit.cur_code,   kCurrencyOpts[i].code, sizeof(g_edit.cur_code));
+						write_overlay_settings_to_ini();
 					}
 				} else if (g_screen == Screen::GamepadDevicePick) {
 					if (i == 0) {

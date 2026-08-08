@@ -178,8 +178,9 @@ const Setting kSettings[] = {
      "en_US", nullptr},
     {"game", "emulate_iap", nullptr, Kind::kBool, offsetof(pvz2_config_t, emulate_iap), 0,
      "Emulated in-app purchases: on = the store is available and every purchase\n"
-     "the game requests completes for free; off = store reports not supported.",
-     nullptr, "1"},
+     "the game requests completes for free; off = store reports not supported.\n"
+     "Default off: gem-priced store items do not need Play Billing.",
+     nullptr, "0"},
 
     {"game", "package_name", nullptr, Kind::kString, offsetof(pvz2_config_t, package_name),
      sizeof(g_config.package_name),
@@ -1358,7 +1359,7 @@ void heal_config_ini(const char *ini_path) {
 
 extern "C" void pvz2_config_load(const char *ini_path, const char *base_dir) {
     g_config = pvz2_config_t{}; /* reset to all-zero before (re)reading */
-    g_config.emulate_iap = 1;
+    g_config.emulate_iap = 0;
     g_config.persist_saves = 1;
     g_config.gamepad_enabled = 1;
     g_config.gamepad_stick_speed = 1.6f;
@@ -1780,6 +1781,7 @@ extern "C" int pvz2_config_apply_overlay_settings(int fullscreen, int width, int
                                                   int emulate_iap) {
     const int locale_changed =
         (locale && locale[0] && std::strcmp(locale, g_config.user_locale) != 0) ? 1 : 0;
+    const int iap_changed = ((emulate_iap ? 1 : 0) != g_config.emulate_iap) ? 1 : 0;
 
     g_config.video_fullscreen = fullscreen ? 1 : 0;
     g_config.video_width = width;
@@ -1796,5 +1798,7 @@ extern "C" int pvz2_config_apply_overlay_settings(int fullscreen, int width, int
         std::snprintf(g_config.currency_code, sizeof(g_config.currency_code), "%s",
                       currency_code);
 
-    return locale_changed;
+    /* Locale: string tables load at boot. IAP: purchase driver / store path is
+     * fixed for the session once the guest has asked. Both need a relaunch. */
+    return (locale_changed || iap_changed) ? 1 : 0;
 }

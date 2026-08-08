@@ -4,9 +4,9 @@
  * calls RequestPayment(sku), a purchase UI appears, and when it finishes Java
  * calls the engine's native FirePaymentComplete back with the receipt. There is
  * no Play Billing here, so this port SHORT-CIRCUITS the flow: with
- * [game] emulate_iap on (the default), the store reports itself available and
- * every purchase the engine asks for is granted for free by calling
- * FirePaymentComplete ourselves.
+ * [game] emulate_iap on, the store reports itself available and every purchase
+ * the game asks for is granted for free by calling FirePaymentComplete
+ * ourselves. Default is off (gem store does not need emulated IAP).
  *
  * Two things make this correct rather than a hack:
  *
