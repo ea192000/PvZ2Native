@@ -2,6 +2,7 @@
 
 #include "pvz2native/config.h"
 #include "pvz2native/config_screen.h"
+#include "pvz2native/achievements.h"
 #include "pvz2native/input/input_queue.h"
 #include "pvz2native/surface.h"
 
@@ -735,7 +736,10 @@ void GamepadModule::inject_ui_mouse_down_at_cursor() {
     down.button.clicks = 1;
     down.button.x = cursor_x_;
     down.button.y = cursor_y_;
-    config_screen_handle_event(&down);
+    if (achievements_screen_is_open())
+        achievements_screen_handle_event(&down);
+    else
+        config_screen_handle_event(&down);
 }
 
 void GamepadModule::inject_ui_mouse_up_at_cursor() {
@@ -752,7 +756,10 @@ void GamepadModule::inject_ui_mouse_up_at_cursor() {
     up.button.clicks = 1;
     up.button.x = cursor_x_;
     up.button.y = cursor_y_;
-    config_screen_handle_event(&up);
+    if (achievements_screen_is_open())
+        achievements_screen_handle_event(&up);
+    else
+        config_screen_handle_event(&up);
 }
 
 void GamepadModule::on_button_a_press() {
@@ -1097,7 +1104,10 @@ void GamepadModule::tick_right_stick_ui(float dt_sec) {
     /* Stick up (negative Y) → wheel +1 → list scrolls toward top (same as mouse). */
     wheel.wheel.y = (sy < 0.0f) ? 1 : -1;
     wheel.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
-    config_screen_handle_event(&wheel);
+    if (achievements_screen_is_open())
+        achievements_screen_handle_event(&wheel);
+    else
+        config_screen_handle_event(&wheel);
 
     drag_cooldown_ = kDragCooldownSec;
 }

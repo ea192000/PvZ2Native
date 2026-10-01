@@ -8,6 +8,7 @@
 
 #include <pvz2native/config.h>
 #include <pvz2native/dependencies/vfs.h>
+#include <pvz2native/dex/config_store.h>
 #include <pvz2native/dex/dex.h>
 #include <pvz2native/input/input_queue.h>
 
@@ -563,6 +564,40 @@ void hardware_model(DexCall &d) { d.ret_string(pvz2_config()->hardware_model); }
 void data_folder(DexCall &d) { d.ret_string("."); }
 
 }  // namespace
+
+void config_store_set_string(const std::string &key, const std::string &value) {
+    ConfigStore &s = config_store();
+    std::lock_guard<std::mutex> lk(s.lock);
+    s.strings[key] = value;
+    s.numbers.erase(key);
+    store_save_locked(s);
+}
+
+bool config_store_get_string(const std::string &key, std::string &out) {
+    ConfigStore &s = config_store();
+    std::lock_guard<std::mutex> lk(s.lock);
+    auto it = s.strings.find(key);
+    if (it == s.strings.end()) return false;
+    out = it->second;
+    return true;
+}
+
+bool config_store_get_int64(const std::string &key, std::int64_t &out) {
+    ConfigStore &s = config_store();
+    std::lock_guard<std::mutex> lk(s.lock);
+    auto it = s.numbers.find(key);
+    if (it == s.numbers.end()) return false;
+    out = it->second;
+    return true;
+}
+
+void config_store_reload(void) {
+    ConfigStore &s = config_store();
+    std::lock_guard<std::mutex> lk(s.lock);
+    s.strings.clear();
+    s.numbers.clear();
+    store_load_locked(s);
+}
 
 void register_android_game_app(HookTable &t) {
     t.add(kClass, "UI_ProcessEvents", ui_process_events);

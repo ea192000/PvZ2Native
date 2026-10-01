@@ -22,9 +22,14 @@ Enfocado en *Plants vs. Zombies 2: It's About Time* **v4.5.2** en Windows y Linu
 
 ### Ajustes dentro del juego
 - Se abren desde el menú principal con el botón de **Google Play** (esquina inferior derecha).
-- Idioma, moneda, pantalla completa, límite de FPS, compras gratuitas, atajos de teclado y opciones de mando, sin editar archivos a mano.
-- La mayoría de cambios se aplican al momento. Cambiar el idioma relanza el proceso para recargar las tablas de texto.
+- Idioma, moneda, pantalla completa, monitor/pantalla, límite de FPS, compras gratuitas, atajos de teclado y opciones de mando, sin editar archivos a mano.
+- La mayoría de cambios se aplican al momento (incluido mover la ventana a otro monitor). Cambiar el idioma relanza el proceso para recargar las tablas de texto.
 - Un `config.ini` viejo o incompleto se corrige al arrancar: faltantes con valores seguros; valores inválidos se sanean.
+
+### Logros
+- Logros locales que se desbloquean al jugar; el progreso se guarda en `prefs.dat`.
+- Toast animado al desbloquear (con SFX); lista completa desde ajustes (**Ver logros**).
+- Opcional: silenciar toast/SFX desde ajustes o con `[game] achievement_notifications = 0` — los desbloqueos se siguen guardando.
 
 ### Confirmación al salir
 - Confirmar o cancelar antes de cerrar (ratón, teclado o mando).
@@ -189,7 +194,21 @@ Salida:
 build/pvz2native/pvz2
 ```
 
-`compile.sh` también copia los assets de UI del host a `build/pvz2native/assets/` (splash, ajustes, cursor). En Windows esos archivos van embebidos en el `.exe` vía `windows_resources.rc`; en Linux deben estar junto al binario bajo `assets/`.
+`compile.sh` también copia los assets de UI del host a `build/pvz2native/assets/` (splash, ajustes, cursor, logros). En Windows esos archivos van embebidos en el `.exe` vía `windows_resources.rc`; en Linux deben estar junto al binario bajo `assets/`.
+
+### Linux — AppImage
+
+```bash
+./compile-appimage.sh
+```
+
+Compila con `compile.sh` y empaqueta un AppImage tipo 2. Salida:
+
+```text
+build/pvz2native/pvz2.AppImage
+```
+
+El AppImage contiene **solo** el binario `pvz2` y `assets/`. Coloca `libPVZ2.so`, `data.obb` y `config.ini` **junto al** `.AppImage` (mismo layout portable que el binario suelto). La primera vez puede descargar `appimagetool` en `tools/` si falta.
 
 ---
 
@@ -198,12 +217,13 @@ build/pvz2native/pvz2
 Coloca los archivos del juego de Android **junto al ejecutable** (no en una subcarpeta `lib/`). Por defecto se buscan `libPVZ2.so` y `data.obb` en esa misma carpeta:
 
 ```text
-<carpeta con pvz2 / pvz2.exe>/
-├── pvz2(.exe)
+<carpeta con pvz2 / pvz2.exe / pvz2.AppImage>/
+├── pvz2(.exe)  o  pvz2.AppImage
 ├── config.ini                 ← se crea / corrige en el primer arranque
 ├── libPVZ2.so                 ← obligatorio (armeabi-v7a)
 ├── data.obb                   ← obligatorio (o apunta [paths] obb a tu nombre de OBB)
-└── assets/                    ← Linux: UI/splash/cursor (Windows: embebido en el exe)
+└── assets/                    ← binario suelto en Linux: UI/splash/cursor/logros
+                                   (Windows: embebido en el exe; AppImage: dentro de la imagen)
 ```
 
 Puedes conservar el nombre original del OBB y referenciarlo en `config.ini`:
@@ -230,8 +250,9 @@ Fuente única de verdad para rutas y depuración (las antiguas variables `PVZ2_*
 | `[paths]` | `save` | Carpeta de guardado opcional; sin valor, `prefs.dat` junto al exe. |
 | `[log]` | `console` | Mostrar consola/log (por defecto `0`). |
 | `[log]` | `verbose` / `trace` / `input` | Diagnóstico de boot / imports / entrada. |
-| `[video]` | `fullscreen`, `width`, `height`, `fps_limit` | Pantalla (también en la UI de ajustes). |
+| `[video]` | `fullscreen`, `display`, `width`, `height`, `fps_limit` | Pantalla / índice de monitor (también en la UI de ajustes). |
 | `[game]` | `user_locale`, `currency_*`, `emulate_iap` | Idioma, monedas, IAP gratis (también en la UI). |
+| `[game]` | `achievement_notifications` | Toast + SFX al desbloquear (`1` por defecto; `0` solo silencia la UI). |
 | `[shortcuts]` | `bind_*` | Tecla → toque en pantalla (también en la UI). |
 | `[board]` / `[gamepad]` / `[gamepad_binds]` | … | Rejilla y binds del mando (también en la UI). |
 
@@ -248,6 +269,7 @@ Fuente única de verdad para rutas y depuración (las antiguas variables `PVZ2_*
 | Confirmar salida | `Esc` (fijo) |
 | Pantalla completa | `F11` (fijo) |
 | Ajustes | Botón Google Play del menú principal |
+| Lista de logros | Desde ajustes (**Ver logros**) |
 | Atajos / mando | Configurables en ajustes |
 
 La ventana es redimensionable: la escena se renderiza a resolución fija y el compositor la escala, remapeando la entrada al espacio del juego.
@@ -266,6 +288,7 @@ La ventana es redimensionable: la escena se renderiza a resolución fija y el co
 | Audio (OpenSL ES → SDL) | 🟢 |
 | Entrada (ratón / teclado / mando) | 🟢 |
 | Ajustes in-game / confirmación al salir | 🟢 |
+| Logros locales (lista + toast) | 🟢 |
 | Servicios online | 🔴 No implementado (deliberadamente offline) |
 
 ---
@@ -283,15 +306,16 @@ PvZ2Native/
 │   │   ├── game/          ← symbols.cpp: direcciones por versión
 │   │   ├── diagnostics/
 │   │   ├── gfx/, audio/, input/, patch/, elf32/
-│   │   ├── config.cpp / config_screen.cpp
+│   │   ├── config.cpp / config_screen.cpp / achievements.cpp
 │   │   └── main.c
 │   ├── windows_resources.rc
 │   └── include/pvz2native/
-├── assets/                ← splash, UI de ajustes, cursor (embebido en Windows; copiado en Linux)
+├── assets/                ← splash, UI de ajustes, cursor, logros (embebido en Windows; copiado en Linux)
 ├── dynarmic/  SDL/  glad/  zlib/  stb/  third_party/
 ├── compile-ninja.bat      ← Windows VS + Ninja
 ├── compile.bat            ← Windows MinGW (PATH)
 ├── compile.sh             ← Linux
+├── compile-appimage.sh    ← AppImage Linux (`pvz2.AppImage`)
 ├── CMakeLists.txt
 └── README.md
 ```

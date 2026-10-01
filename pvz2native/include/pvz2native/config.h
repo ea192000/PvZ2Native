@@ -41,7 +41,8 @@ typedef struct pvz2_gamepad_bind {
     char bind_name[64];
 } pvz2_gamepad_bind_t;
 
-/* Runtime configuration, read once from config.ini next to the executable.
+/* Runtime configuration, read once from config.ini in the portable data folder
+ * (next to the .exe, or next to the .AppImage — see pvz2_host_data_path()).
  *
  * Every debug switch defaults OFF, so a plain build (no config.ini at all) is
  * quiet and fast. The .ini is the ONLY source of truth -- the old PVZ2_*
@@ -57,6 +58,9 @@ typedef struct pvz2_config {
     int pc_sample;      /* [pc-sample]/[HOT] instruction sampling + hot-frame slicing */
     int input;          /* per-event touch/key logging + a frame heartbeat */
     int console;        /* show console/log output (1) or stay quiet (0); on Windows also shows/hides the console window */
+    /* Empty unless [log] logfile is uncommented. Relative names resolve against
+     * the executable folder, same as [paths] so/obb. */
+    char log_file[512];
 
     /* [runtime] -- how the emulator behaves. */
     int no_page_table;        /* route guest memory through the slow callback path */
@@ -82,6 +86,10 @@ typedef struct pvz2_config {
      * granted). When off, the store reports "not supported" and nothing is
      * purchasable. Defaults ON -- see pvz2_config_load. */
     int emulate_iap;
+
+    /* Host-side achievement unlock toast + sound. Achievements are still
+     * recorded when off; only the popup/SFX are suppressed. Default on. */
+    int achievement_notifications;
 
     /* Identity strings the engine asks Java for -- end up in save files, the
      * fabricated purchase receipt and analytics payloads. package_name is the
@@ -116,6 +124,13 @@ typedef struct pvz2_config {
     int video_width;
     int video_height;
     int video_fullscreen;
+
+    /* SDL display index the window opens on / the "auto"/"native" modes measure
+     * against (0 = primary, matching SDL's own numbering). Always re-checked
+     * against SDL_GetNumVideoDisplays() before use -- an index that no longer
+     * exists (a monitor unplugged since it was chosen) silently falls back to 0
+     * rather than failing to create a window. See pvz2_effective_display(). */
+    int video_display;
 
     /* Frame-rate cap, in presented frames per second.
      *
@@ -224,6 +239,19 @@ int pvz2_config_update_gamepad_bind(const char *button, const char *bind_name);
 /* Sets [gamepad] enabled + port and persists to config.ini. Returns 1 on success. */
 int pvz2_config_update_gamepad_device(int enabled, int port);
 
+/* Sets [video] display and persists to config.ini. `index` is clamped to
+ * [0, SDL_GetNumVideoDisplays()) by the caller's own check (see
+ * pvz2_effective_display); an out-of-range value here is still stored as-is so
+ * a monitor unplugged and reconnected later is remembered. Returns 1 on
+ * success. */
+int pvz2_config_update_display(int index);
+
+/* The configured [video] display, re-validated against how many displays SDL
+ * currently reports -- 0 if the stored index no longer exists. Every call site
+ * that indexes SDL_GetCurrentDisplayMode/SDL_CreateWindow's display argument
+ * must go through this rather than reading video_display directly. */
+int pvz2_effective_display(void);
+
 /* which: 0 = stick_speed, 1 = stick_deadzone.
  * persist!=0 writes [gamepad] to config.ini; 0 only updates live memory. */
 int pvz2_config_update_gamepad_stick_param(int which, float value, int persist);
@@ -235,16 +263,23 @@ void pvz2_reload_shortcuts(void);
 
 /* Writes the settings-overlay fields into the in-memory config. Does not touch
  * disk. Returns 1 if a restart is required (locale or emulate_iap changed),
- * 0 if everything else can be applied live. */
+ * 0 if everything else can be applied live. achievement_notifications is always
+ * applied live (no relaunch). */
 int pvz2_config_apply_overlay_settings(int fullscreen, int width, int height,
                                        int fps_limit, const char *locale,
                                        const char *currency_symbol,
                                        const char *currency_code,
-                                       int emulate_iap);
+                                       int emulate_iap,
+                                       int achievement_notifications);
 
 /* Applies fullscreen / window size on the live SDL window and notifies the
  * guest of the new drawable size. Defined in main.c. */
 void pvz2_host_apply_video_settings(int fullscreen, int width, int height);
+
+/* Moves the live window onto `display_index` (already validated by the caller,
+ * normally via pvz2_effective_display()) without requiring a restart. Defined
+ * in main.c. */
+void pvz2_host_apply_display_settings(int display_index);
 
 #ifdef __cplusplus
 }  /* extern "C" */

@@ -7,6 +7,11 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <SDL_syswm.h>
+#include <fcntl.h>
+#include <io.h>
+#include <sys/stat.h>
+#else
+#include <unistd.h>
 #endif
 #include <pvz2native/gfx/frame_limiter.h>
 #include <pvz2native/gfx/gl_requirements.h>
@@ -15,7 +20,9 @@
 #include <pvz2native/pvz2_session.h>
 #include <pvz2native/surface.h>
 #include <pvz2native/config_screen.h>
+#include <pvz2native/achievements.h>
 #include <pvz2native/host_assets.h>
+#include <pvz2native/host_paths.h>
 #include <pvz2native/input/gamepad.h>
 
 /* Set once the window exists, so input mapping can use logical window coords. */
@@ -521,6 +528,16 @@ static void apply_console_visibility(int show_console) {
     }
 }
 
+static int prepare_log_console(void) {
+    if (GetConsoleWindow() != NULL || !AllocConsole()) return 0;
+
+    FILE *stream = NULL;
+    freopen_s(&stream, "CONOUT$", "w", stdout);
+    freopen_s(&stream, "CONOUT$", "w", stderr);
+    freopen_s(&stream, "CONIN$", "r", stdin);
+    return 1;
+}
+
 static void apply_windows_assets(SDL_Window *window) {
     if (!window) return;
 
@@ -722,7 +739,7 @@ static SDL_Surface *load_win_image_from_assets(const char *relpath, Uint16 expec
     if (hot_x) *hot_x = 0;
     if (hot_y) *hot_y = 0;
 
-    char *base = SDL_GetBasePath();
+    char *base = pvz2_host_install_path();
     if (!base) return NULL;
     char path[1024];
     SDL_snprintf(path, sizeof(path), "%s%s", base, relpath);
@@ -1392,8 +1409,28 @@ void pvz2_host_apply_video_settings(int fullscreen, int width, int height) {
         SDL_SetWindowFullscreen(g_window, 0);
         if (width > 0 && height > 0)
             SDL_SetWindowSize(g_window, width, height);
-        SDL_SetWindowPosition(g_window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+        {
+            const int d = pvz2_effective_display();
+            SDL_SetWindowPosition(g_window, SDL_WINDOWPOS_CENTERED_DISPLAY(d),
+                                   SDL_WINDOWPOS_CENTERED_DISPLAY(d));
+        }
     }
+    request_resize_sync();
+    apply_pending_resize_sync(1);
+}
+
+/* Settings overlay: move the window to another display without a restart.
+ * A fullscreen window has to drop out of fullscreen to actually change which
+ * monitor it is on -- SDL_SetWindowPosition alone does not migrate a
+ * FULLSCREEN_DESKTOP window -- so this briefly windows it, repositions, then
+ * re-applies fullscreen if it was on. */
+void pvz2_host_apply_display_settings(int display_index) {
+    if (!g_window) return;
+    const int was_fullscreen = g_fullscreen;
+    if (was_fullscreen) SDL_SetWindowFullscreen(g_window, 0);
+    SDL_SetWindowPosition(g_window, SDL_WINDOWPOS_CENTERED_DISPLAY(display_index),
+                          SDL_WINDOWPOS_CENTERED_DISPLAY(display_index));
+    if (was_fullscreen) SDL_SetWindowFullscreen(g_window, SDL_WINDOW_FULLSCREEN_DESKTOP);
     request_resize_sync();
     apply_pending_resize_sync(1);
 }
@@ -1521,7 +1558,9 @@ static void host_pump(void) {
         /* Stick/A/Back must work on quit-confirm even mid-boot. */
         if (pvz2_gamepad_handle_event(&event))
             continue;
-        if (config_screen_is_open()) {
+        if (achievements_screen_is_open()) {
+            achievements_screen_handle_event(&event);
+        } else if (config_screen_is_open()) {
             config_screen_handle_event(&event);
         } else if (event.type != SDL_WINDOWEVENT) {
             handle_sdl_event(&event);
@@ -1586,7 +1625,68 @@ static int logs_fully_disabled(const pvz2_config_t *cfg) {
            cfg->pc_sample == 0 && cfg->input == 0;
 }
 
+static int path_is_absolute(const char *p) {
+    if (!p || !p[0]) return 0;
+    if (p[0] == '/' || p[0] == '\\') return 1;
+    return ((p[0] >= 'A' && p[0] <= 'Z') || (p[0] >= 'a' && p[0] <= 'z')) && p[1] == ':';
+}
+
+static void write_sdl_log_to_stderr(void *userdata, int category,
+                                    SDL_LogPriority priority, const char *message) {
+    static const char *const priority_names[] = {
+        "", "VERBOSE", "DEBUG", "INFO", "WARN", "ERROR", "CRITICAL"
+    };
+    (void)userdata;
+    (void)category;
+    if (!message || priority < SDL_LOG_PRIORITY_VERBOSE ||
+        priority >= SDL_NUM_LOG_PRIORITIES) return;
+    fprintf(stderr, "%s: %s\n", priority_names[priority], message);
+}
+
+/* [log] logfile: create/overwrite the file at launch only when the key is set.
+ * stdout/stderr then go there (same text the console would print). Relative
+ * names are resolved against the executable folder, matching [paths] so/obb. */
+static void apply_logfile_redirect(const pvz2_config_t *cfg) {
+    if (!cfg || cfg->log_file[0] == '\0') return;
+
+    char resolved[1024];
+    const char *path = cfg->log_file;
+    if (!path_is_absolute(path)) {
+        char *base = pvz2_host_data_path();
+        SDL_snprintf(resolved, sizeof(resolved), "%s%s", base ? base : "", path);
+        if (base) SDL_free(base);
+        path = resolved;
+    }
+
+#ifdef _WIN32
+    /* Keep the CRT FILE objects alive. Reopening stdout/stderr with
+     * freopen_s is unsafe for a Windows-subsystem process that started
+     * without console handles and can crash later when the CRT flushes them. */
+    const int log_fd = _open(path, _O_WRONLY | _O_CREAT | _O_TRUNC | _O_BINARY,
+                             _S_IREAD | _S_IWRITE);
+    if (log_fd == -1) return;
+
+    const int stdout_fd = _fileno(stdout);
+    const int stderr_fd = _fileno(stderr);
+    if (stdout_fd == -1 || stderr_fd == -1 ||
+        _dup2(log_fd, stdout_fd) != 0 || _dup2(log_fd, stderr_fd) != 0) {
+        _close(log_fd);
+        return;
+    }
+    _close(log_fd);
+#else
+    if (!freopen(path, "w", stdout)) return;
+    if (dup2(fileno(stdout), STDERR_FILENO) < 0)
+        (void)freopen(path, "a", stderr);
+#endif
+    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
+    SDL_LogSetOutputFunction(write_sdl_log_to_stderr, NULL);
+    g_text_logs_enabled = 1;
+}
+
 static void apply_text_log_silence_if_needed(const pvz2_config_t *cfg) {
+    if (cfg && cfg->log_file[0] != '\0') return;
     if (!logs_fully_disabled(cfg)) return;
     g_text_logs_enabled = 0;
 #ifdef _WIN32
@@ -1602,7 +1702,7 @@ static void apply_text_log_silence_if_needed(const pvz2_config_t *cfg) {
 static void print_usage(const char *argv0) {
     printf("%s\n", argv0);
     printf("\n");
-    printf("Config file: config.ini next to the executable (written on first run).\n");
+    printf("Config file: config.ini next to the executable / .AppImage (written on first run).\n");
     printf("CLI overrides: pass --key=value or --section.key=value to override\n");
     printf("any static config key for this run only.\n");
     printf("Shortcuts (bind_*) are dynamic and intentionally excluded from CLI.\n");
@@ -1629,11 +1729,11 @@ int main(int argc, char **argv) {
     SDL_JoystickEventState(SDL_ENABLE);
     SDL_GameControllerEventState(SDL_ENABLE);
 
-    /* Read config.ini from the folder the executable lives in, and resolve the
-     * game data paths relative to it (<exe>/libPVZ2.so, <exe>/data.obb by
-     * default) unless the file overrides them.
-     * SDL_GetBasePath returns that folder with a trailing separator. */
-    char *base_path = SDL_GetBasePath();
+    /* Read config.ini from the portable data folder and resolve so/obb/save
+     * relative to it. Loose binary / Windows: same as the exe folder. AppImage:
+     * dirname($APPIMAGE) so data.obb + libPVZ2.so sit next to the .AppImage
+     * while UI assets stay inside the mount (see pvz2_host_install_path). */
+    char *base_path = pvz2_host_data_path();
     char ini_path[1024];
     SDL_snprintf(ini_path, sizeof(ini_path), "%sconfig.ini", base_path ? base_path : "");
     pvz2_config_load(ini_path, base_path ? base_path : "");
@@ -1663,9 +1763,21 @@ int main(int argc, char **argv) {
 
     if (base_path) SDL_free(base_path);
     const pvz2_config_t *cfg = pvz2_config();
+    const int show_console = cfg->console != 0 && cfg->log_file[0] == '\0';
+    int hide_log_console = 0;
+#ifdef _WIN32
+    if (cfg->log_file[0] != '\0') hide_log_console = prepare_log_console();
+#endif
     apply_text_log_silence_if_needed(cfg);
-    apply_console_visibility(cfg->console);
-    g_live_window_title = cfg->console != 0;
+    apply_console_visibility(show_console);
+    apply_logfile_redirect(cfg);
+#ifdef _WIN32
+    if (hide_log_console) {
+        HWND console_window = GetConsoleWindow();
+        if (console_window) ShowWindow(console_window, SW_HIDE);
+    }
+#endif
+    g_live_window_title = show_console;
     load_runtime_shortcuts(cfg);
     printf("so=%s\n", cfg->so_path);
     printf("obb=%s\n", cfg->obb_path);
@@ -1691,7 +1803,10 @@ int main(int argc, char **argv) {
     printf("video: launching at %dx%d%s\n", launch_w, launch_h,
            start_fullscreen ? " (fullscreen)" : "");
     const char *initial_title = g_live_window_title ? "PvZ2" : kGameTitle;
-    SDL_Window *window = SDL_CreateWindow(initial_title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+    const int launch_display = pvz2_effective_display();
+    SDL_Window *window = SDL_CreateWindow(initial_title,
+                                           SDL_WINDOWPOS_CENTERED_DISPLAY(launch_display),
+                                           SDL_WINDOWPOS_CENTERED_DISPLAY(launch_display),
                                            launch_w, launch_h,
                                            SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
     if (!window) {
@@ -1814,7 +1929,11 @@ int main(int argc, char **argv) {
                 }
                 if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE &&
                     event.key.repeat == 0) {
-                    config_screen_request_quit_confirm();
+                    if (achievements_screen_is_open()) {
+                        achievements_screen_request_close();
+                    } else {
+                        config_screen_request_quit_confirm();
+                    }
                     continue;
                 }
                 /* Window events (resize, focus loss, etc.) must always be
@@ -1826,9 +1945,10 @@ int main(int argc, char **argv) {
                  * OS cursor + A click + Back; in-game actions stay suppressed. */
                 if (pvz2_gamepad_handle_event(&event))
                     continue;
-                /* While the config screen is open, forward remaining events to
-                 * it and suppress game keyboard/mouse input. */
-                if (config_screen_is_open()) {
+                /* Achievements screen takes priority over config screen for input. */
+                if (achievements_screen_is_open()) {
+                    achievements_screen_handle_event(&event);
+                } else if (config_screen_is_open()) {
                     config_screen_handle_event(&event);
                 } else if (event.type != SDL_WINDOWEVENT) {
                     handle_sdl_event(&event);
@@ -1846,7 +1966,7 @@ int main(int argc, char **argv) {
                 s_last_gp_ms = now;
                 pvz2_gamepad_tick(dt);
             }
-            if (!config_screen_is_open()) {
+            if (!config_screen_is_open() && !achievements_screen_is_open()) {
                 process_mouse_wheel_scroll();
                 maybe_force_touch_recovery();
                 sync_text_input();
@@ -1874,6 +1994,8 @@ int main(int argc, char **argv) {
             if (g_boot_overlay_active) draw_boot_splash_fade(window);
             /* Draw config screen overlay on top of the game frame (before swap) */
             if (config_screen_is_open()) config_screen_draw(window);
+            /* Achievements: popup draws always (if animating), screen on top of config */
+            achievements_draw(window);
             SDL_GL_SwapWindow(window);
             update_fps_title();
             /* After the swap and the title, so the wait is the last thing in the
@@ -1884,6 +2006,7 @@ int main(int argc, char **argv) {
     }
 
     pvz2_gamepad_shutdown();
+    achievements_shutdown();
     /* Cursor / UI audio must go before DestroyWindow + SDL_Quit (X11/Pulse). */
     pvz2_host_pre_sdl_quit();
     SDL_GL_DeleteContext(gl_context);

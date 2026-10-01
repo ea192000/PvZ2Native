@@ -27,8 +27,15 @@
  */
 
 #include <pvz2native/dex/dex.h>
+#include <pvz2native/config.h>
 #include <pvz2native/config_screen.h>
+#include <pvz2native/achievements.h>
+#include <pvz2native/dex/config_store.h>
 #include <SDL.h>
+
+#include <cstdint>
+#include <cstring>
+#include <string>
 
 namespace pvz2native {
 namespace dex {
@@ -59,6 +66,69 @@ void open_config_screen(DexCall &d) {
     config_screen_request_open();
 }
 
+void queue_achievement_percentage(DexCall &d) {
+    const std::string achievement_id = d.string_arg(0);
+    /* Already known complete: skip everything below, including the log --
+     * this is the fast path for the repeat announcements. */
+    if (achievements_is_service_completed(achievement_id.c_str())) {
+        d.ret(0);
+        return;
+    }
+
+    /* C variadic promotion widens the guest's jfloat to a jdouble before it
+     * lands in the va_list (same rule noted in purchase_driver.cpp's ctor for
+     * jlong), so this is two words -- low then high -- not one. Reading only
+     * arg(1) always reported 0: any float value promoted to double has its
+     * low 32 bits all zero, since a float's 24-bit mantissa fits entirely in
+     * the double's upper word. */
+    const std::uint32_t lo = d.arg(1);
+    const std::uint32_t hi = d.arg(2);
+    const std::uint64_t bits = (std::uint64_t)lo | ((std::uint64_t)hi << 32);
+    double percentage = 0.0;
+    std::memcpy(&percentage, &bits, sizeof(percentage));
+    d.c.log("[achievement] queue id=\"%s\" percentage=%.3f (bits=0x%016llx)",
+            achievement_id.c_str(), percentage, (unsigned long long)bits);
+    if (percentage >= 100.0 && achievements_notify_service_unlocked(achievement_id.c_str()))
+        d.c.log("[achievement] id=\"%s\" recorded as completed", achievement_id.c_str());
+    d.ret(0);
+}
+
+void queue_achievement(DexCall &d) {
+    const std::string achievement_id = d.string_arg(0);
+    if (achievements_is_service_completed(achievement_id.c_str())) {
+        d.ret(0);
+        return;
+    }
+    d.c.log("[achievement] queue id=\"%s\"", achievement_id.c_str());
+    /* Play_QueueAchievement (no percentage) is the binary unlock call --
+     * reaching it at all means the achievement is complete. */
+    if (achievements_notify_service_unlocked(achievement_id.c_str()))
+        d.c.log("[achievement] id=\"%s\" recorded as completed", achievement_id.c_str());
+    d.ret(0);
+}
+
+void submit_achievements(DexCall &d) {
+    d.c.log("[achievement] submit requested");
+    d.ret(0);
+}
+
+void fetch_achievements(DexCall &d) {
+    d.c.log("[achievement] fetch requested");
+    d.ret(0);
+}
+
+void reset_achievements(DexCall &d) {
+    d.c.log("[achievement] reset requested");
+    achievements_reset_completed();
+    d.ret(0);
+}
+
+void show_achievement_view(DexCall &d) {
+    d.c.log("[achievement] show view requested");
+    achievements_screen_request_open();
+    d.ret(0);
+}
+
 }  // namespace
 
 void register_google_play(HookTable &t) {
@@ -67,9 +137,12 @@ void register_google_play(HookTable &t) {
     t.add(kConnect, "Play_Connect_Silent", hook_ignored);
     t.add(kConnect, "Play_Disconnect", hook_ignored);
 
-    t.add(kAchievements, "Play_QueueAchievement_Percentage", hook_ignored);
-    t.add(kAchievements, "Play_ResetAchievements", hook_ignored);
-    t.add(kAchievements, "Play_ShowAchievementView", hook_ignored);
+    t.add(kAchievements, "Play_QueueAchievement", queue_achievement);
+    t.add(kAchievements, "Play_QueueAchievement_Percentage", queue_achievement_percentage);
+    t.add(kAchievements, "Play_SubmitAchievements", submit_achievements);
+    t.add(kAchievements, "Play_ResetAchievements", reset_achievements);
+    t.add(kAchievements, "Play_FetchAchievements", fetch_achievements);
+    t.add(kAchievements, "Play_ShowAchievementView", show_achievement_view);
 
     t.add(kLeaderboard, "Play_SubmitScoreToLeaderboard", hook_ignored);
     t.add(kLeaderboard, "Play_ShowLeaderboardView", hook_ignored);

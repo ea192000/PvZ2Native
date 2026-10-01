@@ -33,14 +33,14 @@ void pvz2_choose_window_size(int *width, int *height, int *fullscreen) {
         return;
     }
 
-    /* The primary display's mode drives both auto and native; without it there
+    /* The chosen display's mode drives both auto and native; without it there
      * is nothing to derive an aspect from, so fall back to the historical fixed
      * size -- surface.h's own 960x540 default, read here rather than kept as a
      * second literal (see surface.h for why that drifted before: this call runs
      * before the first pvz2_surface_set, so the atomics are still at their
      * compile-time default). */
     SDL_DisplayMode dm;
-    if (SDL_GetCurrentDisplayMode(0, &dm) != 0 || dm.w <= 0 || dm.h <= 0) {
+    if (SDL_GetCurrentDisplayMode(pvz2_effective_display(), &dm) != 0 || dm.w <= 0 || dm.h <= 0) {
         *width = (int)pvz2_surface_width();
         *height = (int)pvz2_surface_height();
         return;

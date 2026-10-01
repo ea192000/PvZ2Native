@@ -30,6 +30,7 @@
  */
 
 #include <pvz2native/config.h>
+#include <pvz2native/host_paths.h>
 
 #include <cctype>
 #include <cstddef>
@@ -42,6 +43,8 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#else
+#include <sys/utsname.h>
 #endif
 
 #include <SDL.h>
@@ -57,6 +60,7 @@ pvz2_config_t g_config{};
  * these in the seeded file's documentation, so the two cannot disagree. */
 constexpr char kDefaultSoName[] = "libPVZ2.so";
 constexpr char kDefaultObbName[] = "data.obb";
+constexpr char kDefaultLogFileName[] = "pvz2.log";
 
 enum class Kind {
     kBool,    /* 1/0, true/false, yes/no, on/off; anything else reads as off */
@@ -131,6 +135,12 @@ const Setting kSettings[] = {
      "Show console/log output (1) or keep it quiet (0). On Windows this also\n"
      "shows or hides the console window.",
      nullptr, "0"},
+    {"log", "logfile", nullptr, Kind::kPath, offsetof(pvz2_config_t, log_file),
+     sizeof(g_config.log_file),
+     "Write the same text the console would print into this file. A relative\n"
+     "path is resolved against the folder holding the .exe. Leave commented to\n"
+     "skip the file entirely; uncomment to create/overwrite it on each launch.",
+     nullptr, nullptr},
 
     {"runtime", "no_page_table", nullptr, Kind::kBool, offsetof(pvz2_config_t, no_page_table), 0,
      "Route guest memory through the slow callback path (needed by watchpoints).", nullptr, "0"},
@@ -161,6 +171,11 @@ const Setting kSettings[] = {
      nullptr, "0"},
     {"video", "fullscreen", nullptr, Kind::kBool, offsetof(pvz2_config_t, video_fullscreen), 0,
      "Start borderless-fullscreen (F11 toggles it at runtime either way).", "1", nullptr},
+    {"video", "display", nullptr, Kind::kInt, offsetof(pvz2_config_t, video_display), 0,
+     "SDL display index to open the window on and to measure [video] mode\n"
+     "auto/native against (0 = primary). Optional: an index that does not exist\n"
+     "at launch (monitor unplugged, etc.) falls back to 0 automatically.",
+     nullptr, "0"},
     {"video", "fps_limit", "fpslimit", Kind::kFps, offsetof(pvz2_config_t, fps_limit), 0,
      "Frame-rate cap, in FPS. The simulation runs off the wall clock, so a lower\n"
      "cap does not slow the game down -- it only stops the loop from redrawing as\n"
@@ -181,6 +196,11 @@ const Setting kSettings[] = {
      "the game requests completes for free; off = store reports not supported.\n"
      "Default off: gem-priced store items do not need Play Billing.",
      nullptr, "0"},
+    {"game", "achievement_notifications", nullptr, Kind::kBool,
+     offsetof(pvz2_config_t, achievement_notifications), 0,
+     "Show the achievement unlock popup and sound. Achievements are still saved\n"
+     "when this is off; only the toast is suppressed. Default on.",
+     nullptr, "1"},
 
     {"game", "package_name", nullptr, Kind::kString, offsetof(pvz2_config_t, package_name),
      sizeof(g_config.package_name),
@@ -805,6 +825,7 @@ void write_comment(FILE *f, const char *text) {
 std::string example_for(const Setting &s) {
     if (s.offset == offsetof(pvz2_config_t, so_path)) return std::string(kDefaultSoName);
     if (s.offset == offsetof(pvz2_config_t, obb_path)) return std::string(kDefaultObbName);
+    if (s.offset == offsetof(pvz2_config_t, log_file)) return std::string(kDefaultLogFileName);
     return s.example != nullptr ? s.example : "";
 }
 
@@ -899,8 +920,8 @@ void set_path(char *dst, std::size_t cap, const std::string &v) {
     std::snprintf(dst, cap, "%s", v.c_str());
 }
 
-/* base_dir with a guaranteed trailing separator (SDL_GetBasePath supplies one,
- * but be defensive), or "" when there is no base. */
+/* base_dir with a guaranteed trailing separator (pvz2_host_data_path /
+ * SDL_GetBasePath supply one, but callers may pass a hand-built path). */
 std::string base_with_sep(const char *base_dir) {
     std::string base = (base_dir != nullptr) ? base_dir : "";
     if (!base.empty() && base.back() != '/' && base.back() != '\\') base.push_back('/');
@@ -935,6 +956,34 @@ std::string detected_host_device_name(void) {
     return (platform != nullptr && platform[0] != '\0') ? std::string(platform) : std::string("Windows");
 }
 
+/* Reads PRETTY_NAME="..." out of /etc/os-release (or /usr/lib/os-release as a
+ * fallback), the standard cross-distro way to get a human string like
+ * "Ubuntu 22.04.3 LTS". Empty return means "not found / not parseable". */
+#ifndef _WIN32
+std::string linux_pretty_name(void) {
+    const char *candidates[] = {"/etc/os-release", "/usr/lib/os-release"};
+    for (const char *path : candidates) {
+        FILE *f = std::fopen(path, "r");
+        if (f == nullptr) continue;
+        char line[512];
+        std::string pretty;
+        while (std::fgets(line, sizeof(line), f) != nullptr) {
+            if (std::strncmp(line, "PRETTY_NAME=", 12) != 0) continue;
+            pretty = trim(line + 12);
+            if (!pretty.empty() && pretty.front() == '"') {
+                const std::size_t close = pretty.find('"', 1);
+                pretty = pretty.substr(1, close == std::string::npos ? std::string::npos
+                                                                      : close - 1);
+            }
+            break;
+        }
+        std::fclose(f);
+        if (!pretty.empty()) return pretty;
+    }
+    return std::string();
+}
+#endif
+
 std::string detected_host_hardware_model(void) {
 #ifdef _WIN32
     OSVERSIONINFOW info{};
@@ -957,8 +1006,31 @@ std::string detected_host_hardware_model(void) {
             return version;
         }
     }
+    /* RtlGetVersion unavailable (should not happen on a real Windows box) --
+     * still Windows, so the "Microsoft" branding is correct even here. */
+    return "Microsoft Windows";
+#elif defined(__APPLE__)
+    /* Not "Microsoft" anything -- this is Apple's OS. uname's release is the
+     * Darwin kernel version (e.g. "23.1.0"), which is the closest portable
+     * identifier without pulling in Cocoa/Foundation for a version string. */
+    struct utsname uts{};
+    if (uname(&uts) == 0 && uts.release[0] != '\0') return std::string("macOS (Darwin ") + uts.release + ")";
+    return "macOS";
+#elif defined(__linux__)
+    /* Prefer the distro's own PRETTY_NAME (e.g. "Ubuntu 22.04.3 LTS"); fall back
+     * to "Linux <kernel release>" if os-release is missing (minimal/embedded
+     * systems). Never "Microsoft" -- that was a copy-paste of the Windows
+     * branding onto every other platform. */
+    const std::string pretty = linux_pretty_name();
+    if (!pretty.empty()) return pretty;
+    struct utsname uts{};
+    if (uname(&uts) == 0 && uts.release[0] != '\0') return std::string("Linux ") + uts.release;
+    return "Linux";
+#else
+    /* Any other SDL-supported platform: use SDL's own name verbatim rather than
+     * inventing one, and definitely not "Microsoft " + it. */
+    return detected_host_device_name();
 #endif
-    return std::string("Microsoft ") + detected_host_device_name();
 }
 
 std::string generated_player_uuid(void) {
@@ -1118,6 +1190,10 @@ void finish_defaults(const char *base_dir) {
     finish_path(g_config.so_path, sizeof(g_config.so_path), base_dir, base + kDefaultSoName);
     finish_path(g_config.obb_path, sizeof(g_config.obb_path), base_dir, base + kDefaultObbName);
     finish_path(g_config.save_dir, sizeof(g_config.save_dir), base_dir, base);
+    /* Optional path: an unset log_file stays empty rather than inventing a
+     * default (that would create a log file the player never asked for). */
+    if (g_config.log_file[0] != '\0' && !is_absolute(g_config.log_file))
+        set_path(g_config.log_file, sizeof(g_config.log_file), base + g_config.log_file);
 
     if (g_config.user_locale[0] == '\0') {
         const std::string loc = detected_locale_tag();
@@ -1272,6 +1348,67 @@ bool find_ini_key(const std::vector<std::string> &lines, const char *section, co
     return false;
 }
 
+/* True if [section] has an active OR commented `key = ...` line. Used so heal
+ * can add a newly documented optional key without treating a player's commented
+ * copy as missing (which would duplicate it). */
+bool ini_mentions_key(const std::vector<std::string> &lines, const char *section, const char *key) {
+    const std::string sect = std::string("[") + section + "]";
+    const std::string want = lower(key);
+    bool in_section = false;
+    for (const auto &l : lines) {
+        const std::string trimmed = trim_line_ending(l);
+        if (trimmed == sect) {
+            in_section = true;
+            continue;
+        }
+        if (!trimmed.empty() && trimmed[0] == '[') {
+            in_section = false;
+            continue;
+        }
+        if (!in_section) continue;
+        std::string stripped = trim(trimmed);
+        if (stripped.empty()) continue;
+        if (stripped[0] == ';' || stripped[0] == '#') stripped = trim(stripped.substr(1));
+        const std::size_t eq = stripped.find('=');
+        if (eq == std::string::npos) continue;
+        if (lower(trim(stripped.substr(0, eq))) == want) return true;
+    }
+    return false;
+}
+
+/* Inserts `; key = example` at the end of [section] when the key is absent even
+ * as a comment. Does not uncomment or invent an active default. */
+bool insert_commented_ini_key(std::vector<std::string> &lines, const char *section, const char *key,
+                              const std::string &example) {
+    if (ini_mentions_key(lines, section, key)) return false;
+    const std::string sect = std::string("[") + section + "]";
+    const std::string new_line = std::string("; ") + key + " = " + example + "\n";
+    bool in_section = false;
+    std::size_t insert_at = std::string::npos;
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        const std::string trimmed = trim_line_ending(lines[i]);
+        if (trimmed == sect) {
+            in_section = true;
+            insert_at = i + 1;
+            continue;
+        }
+        if (!trimmed.empty() && trimmed[0] == '[') {
+            if (in_section) break;
+            in_section = false;
+            continue;
+        }
+        if (in_section) insert_at = i + 1;
+    }
+    if (insert_at != std::string::npos) {
+        lines.insert(lines.begin() + (std::ptrdiff_t)insert_at, new_line);
+        return true;
+    }
+    if (!lines.empty() && trim_line_ending(lines.back()).size() > 0) lines.push_back("\n");
+    lines.push_back(sect + "\n");
+    lines.push_back(new_line);
+    return true;
+}
+
 bool section_exists(const std::vector<std::string> &lines, const char *section) {
     const std::string sect = std::string("[") + section + "]";
     for (const auto &l : lines)
@@ -1314,6 +1451,14 @@ void heal_config_ini(const char *ini_path) {
         if (present && value_ok_for_setting(s, raw)) continue;
         if (upsert_ini_key(lines, s.section, write_key, format_live_setting(s).c_str())) dirty = true;
     }
+
+    /* Optional [log] logfile stays commented unless the player uncomments it.
+     * Seed it into older files so the switch is visible without creating a log. */
+    if (insert_commented_ini_key(lines, "log", "logfile", kDefaultLogFileName)) dirty = true;
+
+    /* Optional [video] display stays commented (0 = primary) unless the player
+     * uncomments it, same as logfile above. */
+    if (insert_commented_ini_key(lines, "video", "display", "0")) dirty = true;
 
     for (const DefaultShortcut &d : kDefaultShortcuts) {
         char key[64];
@@ -1360,6 +1505,7 @@ void heal_config_ini(const char *ini_path) {
 extern "C" void pvz2_config_load(const char *ini_path, const char *base_dir) {
     g_config = pvz2_config_t{}; /* reset to all-zero before (re)reading */
     g_config.emulate_iap = 0;
+    g_config.achievement_notifications = 1;
     g_config.persist_saves = 1;
     g_config.gamepad_enabled = 1;
     g_config.gamepad_stick_speed = 1.6f;
@@ -1417,7 +1563,7 @@ extern "C" int pvz2_config_update_bind_key(unsigned idx, const char *new_key) {
                   "%s", new_key);
 
     /* Patch config.ini on disk */
-    char *base = SDL_GetBasePath();
+    char *base = pvz2_host_data_path();
     if (!base) return 1; /* memory updated but file not written */
 
     char ini_path[1024];
@@ -1601,7 +1747,7 @@ extern "C" int pvz2_config_update_gamepad_bind(const char *button, const char *b
     std::snprintf(g_config.gamepad_binds[found_idx].bind_name,
                   sizeof(g_config.gamepad_binds[found_idx].bind_name), "%s", normalized);
 
-    char *base = SDL_GetBasePath();
+    char *base = pvz2_host_data_path();
     if (!base) return 1;
 
     char ini_path[1024];
@@ -1691,11 +1837,50 @@ static void patch_ini_section_key(std::vector<std::string> &lines, const char *s
     }
 }
 
+extern "C" int pvz2_effective_display(void) {
+    const int n = SDL_GetNumVideoDisplays();
+    if (n <= 0) return 0;
+    if (g_config.video_display < 0 || g_config.video_display >= n) return 0;
+    return g_config.video_display;
+}
+
+extern "C" int pvz2_config_update_display(int index) {
+    g_config.video_display = index < 0 ? 0 : index;
+
+    char *base = pvz2_host_data_path();
+    if (!base) return 1;
+
+    char ini_path[1024];
+    SDL_snprintf(ini_path, sizeof(ini_path), "%sconfig.ini", base);
+    SDL_free(base);
+
+    std::vector<std::string> lines;
+    {
+        FILE *f = std::fopen(ini_path, "rb");
+        if (f) {
+            char buf[512];
+            while (std::fgets(buf, sizeof(buf), f)) lines.push_back(buf);
+            std::fclose(f);
+        }
+    }
+
+    char idx_buf[16];
+    SDL_snprintf(idx_buf, sizeof(idx_buf), "%d", g_config.video_display);
+    patch_ini_section_key(lines, "video", "display", idx_buf);
+
+    FILE *f = std::fopen(ini_path, "wb");
+    if (f) {
+        for (const auto &l : lines) std::fputs(l.c_str(), f);
+        std::fclose(f);
+    }
+    return 1;
+}
+
 extern "C" int pvz2_config_update_gamepad_device(int enabled, int port) {
     g_config.gamepad_enabled = enabled ? 1 : 0;
     g_config.gamepad_port = port < 0 ? 0 : port;
 
-    char *base = SDL_GetBasePath();
+    char *base = pvz2_host_data_path();
     if (!base) return 1;
 
     char ini_path[1024];
@@ -1740,7 +1925,7 @@ extern "C" int pvz2_config_update_gamepad_stick_param(int which, float value, in
 
     if (!persist) return 1;
 
-    char *base = SDL_GetBasePath();
+    char *base = pvz2_host_data_path();
     if (!base) return 1;
 
     char ini_path[1024];
@@ -1778,7 +1963,8 @@ extern "C" int pvz2_config_apply_overlay_settings(int fullscreen, int width, int
                                                   int fps_limit, const char *locale,
                                                   const char *currency_symbol,
                                                   const char *currency_code,
-                                                  int emulate_iap) {
+                                                  int emulate_iap,
+                                                  int achievement_notifications) {
     const int locale_changed =
         (locale && locale[0] && std::strcmp(locale, g_config.user_locale) != 0) ? 1 : 0;
     const int iap_changed = ((emulate_iap ? 1 : 0) != g_config.emulate_iap) ? 1 : 0;
@@ -1788,6 +1974,7 @@ extern "C" int pvz2_config_apply_overlay_settings(int fullscreen, int width, int
     g_config.video_height = height;
     g_config.fps_limit = fps_limit;
     g_config.emulate_iap = emulate_iap ? 1 : 0;
+    g_config.achievement_notifications = achievement_notifications ? 1 : 0;
 
     if (locale && locale[0])
         std::snprintf(g_config.user_locale, sizeof(g_config.user_locale), "%s", locale);

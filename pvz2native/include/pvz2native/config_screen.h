@@ -65,6 +65,13 @@ void config_screen_draw(SDL_Window *window);
  * Surface must be in SDL_PIXELFORMAT_RGBA32. */
 void apply_magenta_colorkey(SDL_Surface *surface);
 
+/* Play the same SFX used when opening the quit-confirm dialog (exit_click).
+ * Used by the achievements screen open so they share that cue for now. */
+void config_screen_play_exit_sound(void);
+
+/* Play achievement_unlock.wav (also refreshes SfxVolume/Muted from prefs). */
+void config_screen_play_achievement_unlock_sound(void);
+
 #ifdef __cplusplus
 }
 #endif
