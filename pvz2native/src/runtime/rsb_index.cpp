@@ -1,4 +1,5 @@
 #include <pvz2native/runtime/rsb_index.h>
+#include <pvz2native/log.h>
 
 #include <cctype>
 #include <cstdio>
@@ -41,7 +42,7 @@ bool RsbIndex::load(const std::string &obb_path) {
 
     FILE *f = std::fopen(obb_path.c_str(), "rb");
     if (!f) {
-        std::printf("pvz2: [rsb-index] cannot open '%s'\n", obb_path.c_str());
+        pvz2_log("[rsb-index] cannot open '%s'", obb_path.c_str());
         return false;
     }
 
@@ -58,7 +59,7 @@ bool RsbIndex::load(const std::string &obb_path) {
     std::vector<uint8_t> head(0x100);
     if (std::fread(head.data(), 1, head.size(), f) != head.size() ||
         std::memcmp(head.data(), "1bsr", 4) != 0) {
-        std::printf("pvz2: [rsb-index] '%s' is not an RSB\n", obb_path.c_str());
+        pvz2_log("[rsb-index] '%s' is not an RSB", obb_path.c_str());
         std::fclose(f);
         return false;
     }
@@ -67,7 +68,7 @@ bool RsbIndex::load(const std::string &obb_path) {
     const uint32_t rsg_info_begin = rd32(head, 0x2C);
     const uint32_t rsg_info_each = rd32(head, 0x30);
     if (rsg_number == 0 || rsg_info_each < 0x88) {
-        std::printf("pvz2: [rsb-index] implausible RSG table (n=%u each=%u)\n", rsg_number, rsg_info_each);
+        pvz2_log("[rsb-index] implausible RSG table (n=%u each=%u)", rsg_number, rsg_info_each);
         std::fclose(f);
         return false;
     }
@@ -75,7 +76,7 @@ bool RsbIndex::load(const std::string &obb_path) {
     std::vector<uint8_t> info((size_t)rsg_number * rsg_info_each);
     if (std::fseek(f, (long)rsg_info_begin, SEEK_SET) != 0 ||
         std::fread(info.data(), 1, info.size(), f) != info.size()) {
-        std::printf("pvz2: [rsb-index] truncated RSG info table\n");
+        pvz2_log("[rsb-index] truncated RSG info table");
         std::fclose(f);
         return false;
     }
@@ -173,19 +174,19 @@ bool RsbIndex::load(const std::string &obb_path) {
     std::fclose(f);
 
     loaded_ = !entries_.empty();
-    std::printf("pvz2: [rsb-index] %zu files indexed from %u RSGs (%u skipped) in '%s'\n",
+    pvz2_log("[rsb-index] %zu files indexed from %u RSGs (%u skipped) in '%s'",
                 entries_.size(), rsg_number, skipped, obb_path.c_str());
     if (obscured != 0) {
-        std::printf("pvz2: [rsb-index] %u RSG header(s) had no 'pgsr' magic -- this RSB scrambles "
-                    "the first 0x40 bytes of each; indexed from the fields outside that window\n",
+        pvz2_log("[rsb-index] %u RSG header(s) had no 'pgsr' magic -- this RSB scrambles "
+                    "the first 0x40 bytes of each; indexed from the fields outside that window",
                     obscured);
     }
     /* An RSB that parsed structurally but yielded nothing is worse than one that
      * failed to open: every later ASSET: lookup misses, the engine divides by a
      * count it assumed non-zero, and the crash lands nowhere near here. */
     if (!loaded_) {
-        std::printf("pvz2: [rsb-index] [!] NO files indexed -- every ASSET: path will miss and the "
-                    "engine will fail somewhere far from this message\n");
+        pvz2_log("[rsb-index] [!] NO files indexed -- every ASSET: path will miss and the "
+                    "engine will fail somewhere far from this message");
     }
     return loaded_;
 }

@@ -24,6 +24,7 @@
 #include <pvz2native/host_assets.h>
 #include <pvz2native/host_paths.h>
 #include <pvz2native/input/gamepad.h>
+#include <pvz2native/log.h>
 
 /* Set once the window exists, so input mapping can use logical window coords. */
 static SDL_Window *g_window = NULL;
@@ -185,9 +186,7 @@ static void maybe_finish_pending_keyboard_hide(void) {
     if (!pvz2_input_keyboard_wanted()) return;
 
     pvz2_input_set_keyboard_wanted(0);
-    if (g_text_logs_enabled) {
-        printf("[input] host dismissed keyboard after click outside text mode\n");
-    }
+    pvz2_log("[input] host dismissed keyboard after click outside text mode");
 }
 
 static void push_mouse_wheel_scroll(int wx, int wy, int wheel_y) {
@@ -331,8 +330,7 @@ static void load_runtime_shortcuts(const pvz2_config_t *cfg) {
         const pvz2_shortcut_binding_t *in = &cfg->shortcuts[i];
         SDL_Scancode sc = shortcut_scancode_from_name(in->key);
         if (sc == SDL_SCANCODE_UNKNOWN) {
-            if (g_text_logs_enabled)
-                printf("shortcut ignored: bind_%s (unknown key '%s')\n", in->name, in->key);
+            pvz2_log("[shortcut] ignored: bind_%s (unknown key '%s')", in->name, in->key);
             continue;
         }
         runtime_shortcut_t *out = &g_shortcuts[g_shortcut_count++];
@@ -345,10 +343,9 @@ static void load_runtime_shortcuts(const pvz2_config_t *cfg) {
             out->y = in->y;
         }
         SDL_snprintf(out->name, sizeof(out->name), "%s", in->name);
-        if (g_text_logs_enabled)
-            printf("shortcut bind_%s: key=%s (scancode=%d) -> (%.2f,%.2f)%s\n",
-                   out->name, in->key, (int)sc, out->x, out->y,
-                   (g_bind_use_43 && in->has_43) ? " [4:3]" : " [16:9]");
+        pvz2_log("[shortcut] bind_%s: key=%s (scancode=%d) -> (%.2f,%.2f)%s",
+                 out->name, in->key, (int)sc, out->x, out->y,
+                 (g_bind_use_43 && in->has_43) ? " [4:3]" : " [16:9]");
     }
 }
 
@@ -1683,12 +1680,14 @@ static void apply_logfile_redirect(const pvz2_config_t *cfg) {
     setvbuf(stderr, NULL, _IONBF, 0);
     SDL_LogSetOutputFunction(write_sdl_log_to_stderr, NULL);
     g_text_logs_enabled = 1;
+    pvz2_log_set_enabled(1);
 }
 
 static void apply_text_log_silence_if_needed(const pvz2_config_t *cfg) {
     if (cfg && cfg->log_file[0] != '\0') return;
     if (!logs_fully_disabled(cfg)) return;
     g_text_logs_enabled = 0;
+    pvz2_log_set_enabled(0);
 #ifdef _WIN32
     FILE *stream = NULL;
     freopen_s(&stream, "NUL", "w", stdout);
@@ -1714,6 +1713,42 @@ static void print_usage(const char *argv0) {
     printf("  --paths.obb=data.obb\n");
 }
 
+/* Returns 1 when `path` can be opened and is not empty. SDL_RWFromFile takes UTF-8 paths
+ * on every platform, unlike a bare fopen on Windows. */
+static int required_file_ok(const char *path) {
+    if (!path || !path[0]) return 0;
+    SDL_RWops *f = SDL_RWFromFile(path, "rb");
+    if (!f) return 0;
+    Sint64 size = SDL_RWsize(f);
+    SDL_RWclose(f);
+    return size != 0;
+}
+
+/* Checks libPVZ2.so and the .obb right after the config is loaded. Without them the boot
+ * would otherwise sit forever on a black window. Logs the problem, tells the player and
+ * returns 0 so main can exit. */
+static int check_required_files(const pvz2_config_t *cfg) {
+    char msg[2200];
+    msg[0] = '\0';
+    int missing = 0;
+    if (!required_file_ok(cfg->so_path)) {
+        pvz2_log("[boot] ERROR: libPVZ2.so not found or empty: %s", cfg->so_path);
+        SDL_snprintf(msg + strlen(msg), sizeof(msg) - strlen(msg), "Missing game library (.so):\n%s\n\n", cfg->so_path);
+        missing = 1;
+    }
+    if (!required_file_ok(cfg->obb_path)) {
+        pvz2_log("[boot] ERROR: data .obb not found or empty: %s", cfg->obb_path);
+        SDL_snprintf(msg + strlen(msg), sizeof(msg) - strlen(msg), "Missing game data (.obb):\n%s\n\n", cfg->obb_path);
+        missing = 1;
+    }
+    if (missing) {
+        SDL_snprintf(msg + strlen(msg), sizeof(msg) - strlen(msg),
+                     "Put the files at that location or change [paths] in config.ini.");
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "PvZ2 - Missing files", msg, NULL);
+    }
+    return !missing;
+}
+
 int main(int argc, char **argv) {
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
@@ -1723,7 +1758,7 @@ int main(int argc, char **argv) {
     }
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER) < 0) {
-        printf("SDL_Init failed: %s\n", SDL_GetError());
+        pvz2_log("[sdl] SDL_Init failed: %s", SDL_GetError());
         return 1;
     }
     SDL_JoystickEventState(SDL_ENABLE);
@@ -1745,7 +1780,7 @@ int main(int argc, char **argv) {
 
         const char *eq = strchr(arg + 2, '=');
         if (!eq || eq == arg + 2) {
-            printf("config override ignored: %s (expected --key=value)\n", arg);
+            pvz2_log("[config] override ignored: %s (expected --key=value)", arg);
             continue;
         }
 
@@ -1757,7 +1792,7 @@ int main(int argc, char **argv) {
 
         const char *value = eq + 1;
         if (!pvz2_config_override(name, value)) {
-            printf("config override ignored: %s (unknown/ambiguous or unsupported key)\n", arg);
+            pvz2_log("[config] override ignored: %s (unknown/ambiguous or unsupported key)", arg);
         }
     }
 
@@ -1779,8 +1814,13 @@ int main(int argc, char **argv) {
 #endif
     g_live_window_title = show_console;
     load_runtime_shortcuts(cfg);
-    printf("so=%s\n", cfg->so_path);
-    printf("obb=%s\n", cfg->obb_path);
+    pvz2_log("[path] so=%s", cfg->so_path);
+    pvz2_log("[path] obb=%s", cfg->obb_path);
+    if (!check_required_files(cfg)) {
+        pvz2_host_pre_sdl_quit();
+        SDL_Quit();
+        return 1;
+    }
 
     /* PvZ2's .so only imports gl* symbols, never egl* -- on real Android the
      * Java-side GLSurfaceView owns EGL context creation and the native side
@@ -1800,8 +1840,8 @@ int main(int argc, char **argv) {
      * then synced from the real drawable size before pvz2_session_start. */
     int launch_w = 0, launch_h = 0, start_fullscreen = 0;
     pvz2_choose_window_size(&launch_w, &launch_h, &start_fullscreen);
-    printf("video: launching at %dx%d%s\n", launch_w, launch_h,
-           start_fullscreen ? " (fullscreen)" : "");
+    pvz2_log("[video] launching at %dx%d%s", launch_w, launch_h,
+             start_fullscreen ? " (fullscreen)" : "");
     const char *initial_title = g_live_window_title ? "PvZ2" : kGameTitle;
     const int launch_display = pvz2_effective_display();
     SDL_Window *window = SDL_CreateWindow(initial_title,
@@ -1810,7 +1850,7 @@ int main(int argc, char **argv) {
                                            launch_w, launch_h,
                                            SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
     if (!window) {
-        printf("SDL_CreateWindow failed: %s\n", SDL_GetError());
+        pvz2_log("[sdl] SDL_CreateWindow failed: %s", SDL_GetError());
         pvz2_host_pre_sdl_quit();
         SDL_Quit();
         return 1;
@@ -1821,14 +1861,13 @@ int main(int argc, char **argv) {
     /* Freeze bind aspect from the real launch size (HUD layout is boot-locked). */
     latch_bind_aspect_from_size(launch_w, launch_h);
     load_runtime_shortcuts(cfg);
-    if (g_text_logs_enabled)
-        printf("shortcuts aspect: %s (launch %dx%d)\n",
-               g_bind_use_43 ? "4:3" : "16:9", launch_w, launch_h);
+    pvz2_log("[shortcut] aspect: %s (launch %dx%d)",
+             g_bind_use_43 ? "4:3" : "16:9", launch_w, launch_h);
     pvz2_gamepad_init(window, g_bind_use_43);
 
     SDL_GLContext gl_context = SDL_GL_CreateContext(window);
     if (!gl_context) {
-        printf("SDL_GL_CreateContext failed: %s\n", SDL_GetError());
+        pvz2_log("[sdl] SDL_GL_CreateContext failed: %s", SDL_GetError());
         SDL_DestroyWindow(window);
         pvz2_host_pre_sdl_quit();
         SDL_Quit();
@@ -1847,15 +1886,15 @@ int main(int argc, char **argv) {
 
     int glad_version = gladLoadGL((GLADloadfunc)SDL_GL_GetProcAddress);
     if (glad_version == 0) {
-        printf("gladLoadGL failed to load any GL functions\n");
+        pvz2_log("[gl] gladLoadGL failed to load any GL functions");
         SDL_GL_DeleteContext(gl_context);
         SDL_DestroyWindow(window);
         pvz2_host_pre_sdl_quit();
         SDL_Quit();
         return 1;
     }
-    printf("GL context ready: %s (loaded via glad %d.%d)\n", (const char *)glGetString(GL_VERSION),
-           GLAD_VERSION_MAJOR(glad_version), GLAD_VERSION_MINOR(glad_version));
+    pvz2_log("[gl] context ready: %s (loaded via glad %d.%d)", (const char *)glGetString(GL_VERSION),
+             GLAD_VERSION_MAJOR(glad_version), GLAD_VERSION_MINOR(glad_version));
 
     /* Verify the GPU can actually run the engine (OpenGL 2.0 + framebuffer
      * objects) BEFORE loading the .so. A GPU that falls short is shown a message

@@ -8,6 +8,7 @@
  */
 
 #include <pvz2native/input/input_queue.h>
+#include <pvz2native/config.h>
 
 #include <atomic>
 #include <chrono>
@@ -26,7 +27,8 @@ namespace {
 double now_ms() {
     return (double)std::chrono::duration_cast<std::chrono::milliseconds>(
                std::chrono::system_clock::now().time_since_epoch())
-        .count();
+               .count() +
+           (double)pvz2_time_offset_sec() * 1000.0;
 }
 
 struct Event {

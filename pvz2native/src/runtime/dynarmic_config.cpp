@@ -4,6 +4,7 @@
  */
 
 #include <pvz2native/runtime/dynarmic_config.h>
+#include <pvz2native/log.h>
 
 #include <algorithm>
 #include <chrono>
@@ -176,8 +177,8 @@ void build_page_table(pvz2_elf_image_t *img) {
     /* The memory watchpoint only works through the callbacks, so keep a way to
      * turn the table off wholesale. */
     if (pvz2_config()->no_page_table) {
-        std::printf("pvz2: [runtime] no_page_table set -- guest memory goes through the slow "
-                    "callback path\n");
+        pvz2_log("[runtime] no_page_table set -- guest memory goes through the slow "
+                    "callback path");
         return;
     }
     constexpr std::uint32_t kPageSize = 1u << Dynarmic::A32::UserConfig::PAGE_BITS;
@@ -192,7 +193,7 @@ void build_page_table(pvz2_elf_image_t *img) {
         (*g_page_table)[addr >> Dynarmic::A32::UserConfig::PAGE_BITS] = img->mem;
         ++mapped;
     }
-    std::printf("pvz2: guest memory mapped directly into the JIT (%u pages, %u MB)\n", mapped,
+    pvz2_log("[jit] guest memory mapped directly into the JIT (%u pages, %u MB)", mapped,
                 (unsigned)(img->mem_size >> 20));
 }
 
@@ -209,7 +210,7 @@ void build_import_handler_cache(pvz2_elf_image_t *img) {
         g_import_handlers[i] = table.find(img->trampoline_names[i]);
         if (g_import_handlers[i] != nullptr) ++resolved;
     }
-    std::printf("pvz2: %u/%u imported symbols bound to a dependency module\n", resolved,
+    pvz2_log("[jit] %u/%u imported symbols bound to a dependency module", resolved,
                 img->trampoline_count);
 }
 
@@ -234,13 +235,13 @@ HeapLayout heap_layout_for(const pvz2_elf_image_t *img) {
     if (base < kFloor) base = kFloor;
 
     if (base >= kThreadStackBase) {
-        std::printf("pvz2: [runtime] image ends at 0x%08x, past the thread stacks at 0x%08x -- "
-                    "no room for a guest heap\n", image_end, kThreadStackBase);
+        pvz2_log("[runtime] image ends at 0x%08x, past the thread stacks at 0x%08x -- "
+                    "no room for a guest heap", image_end, kThreadStackBase);
         return {base, 0};
     }
 
     HeapLayout layout{base, kThreadStackBase - base};
-    std::printf("pvz2: [runtime] image 0x%08x..0x%08x, guest heap 0x%08x..0x%08x (%u MB)\n",
+    pvz2_log("[runtime] image 0x%08x..0x%08x, guest heap 0x%08x..0x%08x (%u MB)",
                 img->so_base, image_end, layout.base, kThreadStackBase, layout.size >> 20);
     return layout;
 }
@@ -266,8 +267,8 @@ void Pvz2Env::note_watch(std::uint32_t vaddr, std::uint32_t size, std::uint32_t 
     --g_watch_budget;
     auto &regs = jit->Regs();
     std::lock_guard<std::mutex> lg(rt->log_lock);
-    std::printf("pvz2: [watch] write%u 0x%08x = 0x%08x (%d)  pc=0x%08x lr=0x%08x "
-                "r0=0x%08x r1=0x%08x r4=0x%08x\n",
+    pvz2_log("[watch] write%u 0x%08x = 0x%08x (%d)  pc=0x%08x lr=0x%08x "
+                "r0=0x%08x r1=0x%08x r4=0x%08x",
                 size * 8, vaddr, value, (int)value, regs[15], regs[14], regs[0], regs[1], regs[4]);
 }
 
@@ -351,7 +352,7 @@ std::optional<std::uint32_t> Pvz2Env::MemoryReadCode(std::uint32_t vaddr) {
 void Pvz2Env::InterpreterFallback(std::uint32_t pc, size_t num_instructions) {
     {
         std::lock_guard<std::mutex> lg(rt->log_lock);
-        std::printf("pvz2: InterpreterFallback at pc=0x%08x (%zu instr) -- halting\n", pc,
+        pvz2_log("[jit] InterpreterFallback at pc=0x%08x (%zu instr) -- halting", pc,
                     num_instructions);
     }
     should_halt = true;
@@ -428,13 +429,13 @@ void Pvz2Env::handle_import_call(std::uint32_t idx) {
         if (import_calls == kTraceCallLimit) {
             std::lock_guard<std::mutex> lg(rt->log_lock);
             trace::set(false);
-            std::printf("pvz2: reached the trace limit (%u calls in this guest call) -- tracing "
-                        "off, execution continues\n", kTraceCallLimit);
+            pvz2_log("[jit] reached the trace limit (%u calls in this guest call) -- tracing "
+                        "off, execution continues", kTraceCallLimit);
             std::fflush(stdout);
         } else {
             std::lock_guard<std::mutex> lg(rt->log_lock);
-            std::printf("pvz2: import call #%u -> %s(r0=0x%08x, r1=0x%08x, r2=0x%08x, r3=0x%08x) "
-                        "lr=0x%08x\n",
+            pvz2_log("[jit] import call #%u -> %s(r0=0x%08x, r1=0x%08x, r2=0x%08x, r3=0x%08x) "
+                        "lr=0x%08x",
                         import_calls, name, regs[0], regs[1], regs[2], regs[3], regs[14]);
         }
     }
@@ -480,7 +481,7 @@ void Pvz2Env::handle_import_call(std::uint32_t idx) {
         }
         if (first) {
             std::lock_guard<std::mutex> lg(rt->log_lock);
-            std::printf("pvz2: [MISSING IMPORT] %s -- unimplemented, returning 0 (lr=0x%08x)\n",
+            pvz2_log("[MISSING IMPORT] %s -- unimplemented, returning 0 (lr=0x%08x)",
                         name, regs[14]);
             std::fflush(stdout);
         }
@@ -493,7 +494,7 @@ void Pvz2Env::CallSVC(std::uint32_t swi) {
     if (swi == 0) {
         if (verbose_boot()) {
             std::lock_guard<std::mutex> lg(rt->log_lock);
-            std::printf("pvz2: guest function returned to host (halt sentinel)\n");
+            pvz2_log("[jit] guest function returned to host (halt sentinel)");
         }
         halted_by_guest_return = true;
         should_halt = true;
@@ -533,17 +534,17 @@ void Pvz2Env::ExceptionRaised(std::uint32_t pc, Dynarmic::A32::Exception excepti
              * pushed out of the console by thousands of identical frames. */
             static std::set<std::uint64_t> seen;
             if (seen.insert(((std::uint64_t)pc << 32) | regs[14]).second) {
-                std::printf("pvz2: [NULL CALL] the guest branched to 0x%08x -- a null/uninitialised "
+                pvz2_log("[NULL CALL] the guest branched to 0x%08x -- a null/uninitialised "
                             "function pointer, called from lr=0x%08x (offset 0x%x). r0=0x%08x "
                             "r1=0x%08x r2=0x%08x r3=0x%08x -- halting (this call site is "
-                            "reported once)\n",
+                            "reported once)",
                             pc, regs[14],
                             regs[14] >= img->so_base ? regs[14] - img->so_base : regs[14],
                             regs[0], regs[1], regs[2], regs[3]);
             }
         } else {
-            std::printf("pvz2: exception %d raised at pc=0x%08x lr=0x%08x r0=0x%08x r1=0x%08x "
-                        "r2=0x%08x r3=0x%08x -- halting\n",
+            pvz2_log("[jit] exception %d raised at pc=0x%08x lr=0x%08x r0=0x%08x r1=0x%08x "
+                        "r2=0x%08x r3=0x%08x -- halting",
                         static_cast<int>(exception), pc, regs[14], regs[0], regs[1], regs[2],
                         regs[3]);
         }
@@ -572,8 +573,8 @@ void Pvz2Env::AddTicks(std::uint64_t ticks) {
         static std::atomic<bool> warned{false};
         if (!warned.exchange(true)) {
             std::lock_guard<std::mutex> lg(rt->log_lock);
-            std::printf("pvz2: [thread %u] crossed the %llu-tick mark -- long-lived worker, "
-                        "budget not enforced (normal for audio/streaming threads)\n",
+            pvz2_log("[thread %u] crossed the %llu-tick mark -- long-lived worker, "
+                        "budget not enforced (normal for audio/streaming threads)",
                         guest_tls::self_id, (unsigned long long)kTickBudget);
         }
         ticks_used = 0;
@@ -582,7 +583,7 @@ void Pvz2Env::AddTicks(std::uint64_t ticks) {
 
     {
         std::lock_guard<std::mutex> lg(rt->log_lock);
-        std::printf("pvz2: tick budget exhausted (%llu), halting\n",
+        pvz2_log("[jit] tick budget exhausted (%llu), halting",
                     (unsigned long long)ticks_used);
     }
     should_halt = true;
@@ -697,21 +698,21 @@ Dynarmic::HaltReason run_jit_sliced(Dynarmic::A32::Jit &jit, Pvz2Env &env) {
             bool new_lr = env.hot_seen_lrs.insert(jit.Regs()[14]).second;
             if (env.hot_hits <= 40 || new_lr) {
                 std::lock_guard<std::mutex> lg(env.rt->log_lock);
-                std::printf("pvz2: [HOT #%u%s] tid=%u pc=0x%08x lr=0x%08x r0=0x%08x r1=0x%08x "
-                            "r4=0x%08x sp=0x%08x\n",
+                pvz2_log("[HOT #%u%s] tid=%u pc=0x%08x lr=0x%08x r0=0x%08x r1=0x%08x "
+                            "r4=0x%08x sp=0x%08x",
                             env.hot_hits, new_lr ? " NEW-LR" : "", guest_tls::self_id, pc,
                             jit.Regs()[14], jit.Regs()[0], jit.Regs()[1], jit.Regs()[4],
                             jit.Regs()[13]);
             } else if (env.hot_hits == env.kHotHitCap) {
                 std::lock_guard<std::mutex> lg(env.rt->log_lock);
-                std::printf("pvz2: [HOT] cap reached (%u hits, %zu distinct LRs) -- reverting to "
-                            "coarse sampling\n", env.hot_hits, env.hot_seen_lrs.size());
+                pvz2_log("[HOT] cap reached (%u hits, %zu distinct LRs) -- reverting to "
+                            "coarse sampling", env.hot_hits, env.hot_seen_lrs.size());
             }
             continue;
         }
         {
             std::lock_guard<std::mutex> lg(env.rt->log_lock);
-            std::printf("pvz2: [pc-sample] tid=%u ticks=%llu pc=0x%08x lr=0x%08x sp=0x%08x\n",
+            pvz2_log("[pc-sample] tid=%u ticks=%llu pc=0x%08x lr=0x%08x sp=0x%08x",
                         guest_tls::self_id, (unsigned long long)env.ticks_used, jit.Regs()[15],
                         jit.Regs()[14], jit.Regs()[13]);
         }
@@ -733,8 +734,8 @@ std::uint32_t Pvz2Env::hook_call_guest(void *env, std::uint32_t fn, const std::u
         std::uint32_t base = rt->heap.alloc(kNestedStackSize);
         if (base == 0) {
             std::lock_guard<std::mutex> lg(rt->log_lock);
-            std::printf("pvz2: [call-guest] no room for a nested stack -- callback 0x%08x "
-                        "skipped\n", fn);
+            pvz2_log("[call-guest] no room for a nested stack -- callback 0x%08x "
+                        "skipped", fn);
             return 0;
         }
         nested_stack_top = (base + kNestedStackSize) & ~7u;
@@ -802,7 +803,7 @@ std::uint32_t Pvz2Env::spawn_guest_thread_impl(GuestRuntime *rt, std::uint32_t s
         std::lock_guard<std::mutex> lock(rt->threads_lock);
         if (rt->next_stack_slot >= kThreadStackMax) {
             std::lock_guard<std::mutex> lg(rt->log_lock);
-            std::printf("pvz2: out of guest thread stack slots (max %u)\n", kThreadStackMax);
+            pvz2_log("[thread] out of guest thread stack slots (max %u)", kThreadStackMax);
             return 0;
         }
         stack_top = kThreadStackBase + (rt->next_stack_slot + 1) * kThreadStackSize;
@@ -834,7 +835,7 @@ std::uint32_t Pvz2Env::spawn_guest_thread_impl(GuestRuntime *rt, std::uint32_t s
 
         {
             std::lock_guard<std::mutex> lg(rt->log_lock);
-            std::printf("pvz2: [thread %u] starting at 0x%08x (arg=0x%08x)\n", id, start_routine,
+            pvz2_log("[thread %u] starting at 0x%08x (arg=0x%08x)", id, start_routine,
                         arg);
         }
         /* Same slice trap as the nested callbacks: one Run() lasts a tick
@@ -846,8 +847,8 @@ std::uint32_t Pvz2Env::spawn_guest_thread_impl(GuestRuntime *rt, std::uint32_t s
         std::uint32_t retval = env.exited_early ? env.exit_retval : regs[0];
         {
             std::lock_guard<std::mutex> lg(rt->log_lock);
-            std::printf("pvz2: [thread %u] finished, retval=0x%08x, import_calls=%u, "
-                        "jni_calls=%u\n", id, retval, env.import_calls, env.jni_calls);
+            pvz2_log("[thread %u] finished, retval=0x%08x, import_calls=%u, "
+                        "jni_calls=%u", id, retval, env.import_calls, env.jni_calls);
         }
 
         std::lock_guard<std::mutex> lock(rt->threads_lock);
@@ -962,8 +963,8 @@ bool join_leftover_guest_threads(GuestRuntime *rt) {
         } else {
             {
                 std::lock_guard<std::mutex> lg(rt->log_lock);
-                std::printf("pvz2: [shutdown] guest thread %u still blocked after "
-                            "join deadline -- detaching\n", id);
+                pvz2_log("[shutdown] guest thread %u still blocked after "
+                            "join deadline -- detaching", id);
             }
             th.detach();
             all_joined = false;
@@ -1004,7 +1005,7 @@ void run_one_ctor(pvz2_elf_image_t *img, GuestRuntime *rt, std::uint32_t entry_a
 
     Dynarmic::HaltReason hr = run_jit_sliced(ctx.jit, ctx.env);
     if (verbose_boot()) {
-        std::printf("pvz2: %s %s[%u] (0x%08x) returned, halt_reason=0x%08x, import_calls=%u\n",
+        pvz2_log("[runtime] %s %s[%u] (0x%08x) returned, halt_reason=0x%08x, import_calls=%u",
                     module, what, i, entry_addr, static_cast<unsigned>(hr), ctx.env.import_calls);
     }
 }
@@ -1025,10 +1026,10 @@ void run_init_array(pvz2_elf_image_t *img, GuestRuntime *rt) {
         total += img->modules[k].init_array_count;
     }
     if (total == 0 && img->module_count <= 1) {
-        std::printf("pvz2: no .init_array entries, skipping\n");
+        pvz2_log("[runtime] no .init_array entries, skipping");
         return;
     }
-    std::printf("pvz2: ---- running %u constructor(s) across %u module(s) ----\n", total,
+    pvz2_log("[runtime] ---- running %u constructor(s) across %u module(s) ----", total,
                 img->module_count);
 
     std::uint32_t done = 0;
@@ -1078,7 +1079,7 @@ void run_jni_onload(pvz2_elf_image_t *img, GuestRuntime *rt) {
         const std::uint32_t entry_addr = pvz2_elf_find_symbol_in(&m, "JNI_OnLoad");
         if (entry_addr == 0) continue; /* most libraries have none -- normal */
 
-        std::printf("pvz2: ---- running JNI_OnLoad [%s] at 0x%08x ----\n", m.name, entry_addr);
+        pvz2_log("[runtime] ---- running JNI_OnLoad [%s] at 0x%08x ----", m.name, entry_addr);
 
         GuestThreadCtx &ctx = main_ctx(img, rt);
         GuestCallSetup setup;
@@ -1091,8 +1092,8 @@ void run_jni_onload(pvz2_elf_image_t *img, GuestRuntime *rt) {
 
         Dynarmic::HaltReason hr = run_jit_sliced(ctx.jit, ctx.env);
         const std::uint32_t ret = ctx.jit.Regs()[0];
-        std::printf("pvz2: JNI_OnLoad [%s] returned 0x%08x, halt_reason=0x%08x, import_calls=%u, "
-                    "jni_calls=%u, ticks_used=%llu\n",
+        pvz2_log("[runtime] JNI_OnLoad [%s] returned 0x%08x, halt_reason=0x%08x, import_calls=%u, "
+                    "jni_calls=%u, ticks_used=%llu",
                     m.name, ret, static_cast<unsigned>(hr), ctx.env.import_calls,
                     ctx.env.jni_calls, (unsigned long long)ctx.env.ticks_used);
 
@@ -1101,22 +1102,22 @@ void run_jni_onload(pvz2_elf_image_t *img, GuestRuntime *rt) {
          * dereferences them -- so say it now rather than let it surface as a
          * null branch somewhere unrelated. */
         if ((std::int32_t)ret < 0) {
-            std::printf("pvz2: [!] %s's JNI_OnLoad failed (JNI_ERR) -- its JavaVM and any cached "
-                        "classes are unset; calls into it will branch through NULL\n", m.name);
+            pvz2_log("[!] %s's JNI_OnLoad failed (JNI_ERR) -- its JavaVM and any cached "
+                        "classes are unset; calls into it will branch through NULL", m.name);
         }
         ++ran;
     }
-    if (ran == 0) std::printf("pvz2: symbol 'JNI_OnLoad' not found in any module, skipping\n");
+    if (ran == 0) pvz2_log("[runtime] symbol 'JNI_OnLoad' not found in any module, skipping");
 }
 
 void run_export(pvz2_elf_image_t *img, GuestRuntime *rt, const char *entry_name,
                 std::uint32_t arg2, std::uint32_t arg3) {
     std::uint32_t entry_addr = pvz2_elf_find_symbol(img, entry_name);
     if (entry_addr == 0) {
-        std::printf("pvz2: symbol '%s' not found, skipping\n", entry_name);
+        pvz2_log("[runtime] symbol '%s' not found, skipping", entry_name);
         return;
     }
-    std::printf("pvz2: ---- running %s at 0x%08x ----\n", entry_name, entry_addr);
+    pvz2_log("[runtime] ---- running %s at 0x%08x ----", entry_name, entry_addr);
 
     /* Synchronous top-level calls never overlap, so they share one Jit -- and
      * with it every block it has already translated. */
@@ -1133,8 +1134,8 @@ void run_export(pvz2_elf_image_t *img, GuestRuntime *rt, const char *entry_name,
 
     auto t0 = std::chrono::steady_clock::now();
     Dynarmic::HaltReason hr = run_jit_sliced(ctx.jit, ctx.env);
-    std::printf("pvz2: %s returned, halt_reason=0x%08x, import_calls=%u, jni_calls=%u, "
-                "ticks_used=%llu, ms=%.1f\n",
+    pvz2_log("[runtime] %s returned, halt_reason=0x%08x, import_calls=%u, jni_calls=%u, "
+                "ticks_used=%llu, ms=%.1f",
                 entry_name, static_cast<unsigned>(hr), ctx.env.import_calls, ctx.env.jni_calls,
                 (unsigned long long)ctx.env.ticks_used, ms_since(t0));
 }
@@ -1145,7 +1146,7 @@ void run_guest_call(pvz2_elf_image_t *img, GuestRuntime *rt, const char *label,
     std::uint32_t entry_addr = img->so_base + offset;
     const bool chatty = verbose_boot() || !per_frame;
     if (chatty) {
-        std::printf("pvz2: ---- running %s at 0x%08x (offset 0x%x) ----\n", label, entry_addr,
+        pvz2_log("[runtime] ---- running %s at 0x%08x (offset 0x%x) ----", label, entry_addr,
                     offset);
         /* Only the non-per-frame calls (the boot phases) update the window-title
          * status; a per-frame onDrawFrame doing it churned a mutex and a
@@ -1188,16 +1189,16 @@ void run_guest_call(pvz2_elf_image_t *img, GuestRuntime *rt, const char *label,
          * never matches twice and dedupes nothing. */
         static std::set<std::uint32_t> seen;
         if (seen.insert(offset).second) {
-            std::printf("pvz2: [!] %s did NOT return -- it halted with sp=0x%08x, expected 0x%08x "
+            pvz2_log("[!] %s did NOT return -- it halted with sp=0x%08x, expected 0x%08x "
                         "(%u words deep). Any 'returned' line for it is a return that did not "
-                        "happen; everything after the halt point never ran. (reported once)\n",
+                        "happen; everything after the halt point never ran. (reported once)",
                         label, ctx.jit.Regs()[13], setup.sp,
                         (unsigned)((setup.sp - ctx.jit.Regs()[13]) / 4));
         }
     }
     if (chatty) {
-        std::printf("pvz2: %s returned, halt_reason=0x%08x, import_calls=%u, jni_calls=%u, "
-                    "ticks_used=%llu, ms=%.1f\n",
+        pvz2_log("[runtime] %s returned, halt_reason=0x%08x, import_calls=%u, jni_calls=%u, "
+                    "ticks_used=%llu, ms=%.1f",
                     label, static_cast<unsigned>(hr), ctx.env.import_calls, ctx.env.jni_calls,
                     (unsigned long long)ctx.env.ticks_used, ms);
     }

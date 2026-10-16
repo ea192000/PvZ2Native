@@ -15,6 +15,7 @@
  */
 
 #include <pvz2native/dex/dex.h>
+#include <pvz2native/log.h>
 
 #include <algorithm>
 #include <atomic>
@@ -232,7 +233,7 @@ void handle_jni(GuestCall &c, std::uint32_t slot) {
     const char *name = slot < kSlotCount ? kSlotNames[slot] : "<beyond-known-table>";
 
     if (trace::enabled()) {
-        c.log("JNI -> %s (slot %u) (env=0x%08x, r1=0x%08x, r2=0x%08x, r3=0x%08x)", name, slot,
+        c.log("[jni] -> %s (slot %u) (env=0x%08x, r1=0x%08x, r2=0x%08x, r3=0x%08x)", name, slot,
               regs[0], regs[1], regs[2], regs[3]);
     }
 
@@ -533,29 +534,29 @@ void report_call_census() {
         /* The useful negative result: the engine has not asked Java for
          * anything in five seconds. Whatever it is waiting on, it is not us --
          * so look at guest threads and locks, not at the hook table. */
-        std::printf("pvz2: [jni] no Java calls in the last %.0fs -- the engine is not waiting on "
-                    "this layer\n", secs);
+        pvz2_log("[jni] no Java calls in the last %.0fs -- the engine is not waiting on "
+                    "this layer", secs);
         return;
     }
 
     std::sort(lines.begin(), lines.end(),
               [](const Line &a, const Line &b) { return a.delta > b.delta; });
 
-    std::printf("pvz2: [jni] %zu method(s) called in the last %.0fs:\n", lines.size(), secs);
+    pvz2_log("[jni] %zu method(s) called in the last %.0fs:", lines.size(), secs);
     for (std::size_t i = 0; i < lines.size() && i < kMaxLines; ++i) {
         const Line &l = lines[i];
         char note[64] = "";
         if (!l.hooked) {
             std::snprintf(note, sizeof(note), "  UNHOOKED -> %s", unhooked_answer(l.ret_kind));
         }
-        std::printf("pvz2: [jni]   %-58s x%-7llu (total %llu)%s\n", l.text.c_str(),
+        pvz2_log("[jni]   %-58s x%-7llu (total %llu)%s", l.text.c_str(),
                     (unsigned long long)l.delta, (unsigned long long)l.total, note);
     }
     if (lines.size() > kMaxLines) {
-        std::printf("pvz2: [jni]   ... and %zu more\n", lines.size() - kMaxLines);
+        pvz2_log("[jni]   ... and %zu more", lines.size() - kMaxLines);
     }
     if (unresolved_delta != 0) {
-        std::printf("pvz2: [jni]   %llu call(s) through a jmethodID we never issued\n",
+        pvz2_log("[jni]   %llu call(s) through a jmethodID we never issued",
                     (unsigned long long)unresolved_delta);
     }
     std::fflush(stdout);
@@ -599,7 +600,7 @@ void install(pvz2_elf_image_t *img) {
     }
     write32(kJavaVmPtrAddr, kJavaVmTableAddr);
 
-    std::printf("pvz2: [dex] JNIEnv at 0x%08x (%u slots), JavaVM at 0x%08x, %zu method hooks\n",
+    pvz2_log("[dex] JNIEnv at 0x%08x (%u slots), JavaVM at 0x%08x, %zu method hooks",
                 kJniEnvPtrAddr, kSlotCount, kJavaVmPtrAddr, hook_table().size());
 }
 

@@ -12,9 +12,9 @@
  */
 
 #include <pvz2native/game/symbols.h>
+#include <pvz2native/log.h>
 
 #include <cstddef>
-#include <cstdio>
 #include <cstring>
 
 namespace pvz2native {
@@ -150,8 +150,12 @@ const GameSymbols kVersions[] = {
             .app_driver = 0x117a734,
         },
         .jni_native = {
-            /* HttpTransactionError: enqueues a failure via sub_CB9F80. */
-            .http_transaction_error = 0xcded8c,
+            /* 5-entry HTTP array at 0x10a5978 -- previous map pointed Error at
+             * Complete (index 2); the real Error is index 3. */
+            .http_received_response     = 0xcdeb28,
+            .http_received_data         = 0xcdebcc,
+            .http_transaction_complete  = 0xcded8c,
+            .http_transaction_error     = 0xcdee30,
         },
         .patch = {
             /* purchase_online_gate -- the four `BL sub_247084` inside the
@@ -167,6 +171,49 @@ const GameSymbols kVersions[] = {
                 0x72e0d8, /* in sub_72E0C0 -- restore purchases              */
                 0x72e38c, /* in sub_72E384 -- any purchase still in flight?  */
             },
+            /* LoD / CDN apply: every BL to sub_247084 on that path. Omits
+             * boot/snapshot sites (0x47434c, 0x248ccc) that hang the loading
+             * screen when forced online.
+             * 0x323058/174/1d4 -- sub_322F84 (CDN package apply)
+             * 0x2f373c         -- sub_2F3240 (CDN companion)
+             * 0x2f10b0/1e8c    -- nearby CDN helpers (same module)
+             * 0x32c240/3f7748  -- same "online then touch singleton" pattern;
+             *                     without these, schedule can evaluate once
+             *                     offline, stash NextScheduleTime, and never
+             *                     pick up halloween/LoD until that timestamp. */
+            .lod_cdn_online_gate = {
+                0x323058,
+                0x323174,
+                0x3231d4,
+                0x2f373c,
+                0x2f10b0,
+                0x2f1e8c,
+                0x32c240,
+                0x3f7748,
+            },
+            /* LoD apply never reached Active-UID writer: stub BX LR + tick gate
+             * + property-gate BNEs that exit before schedule matching.
+             * 0x3487ac: real apply (sub_3487AC).
+             * 0x3469f8: BNE skips stub_call when toggle gate != 1 -> NOP.
+             * 0x346a00: BL sub_40F440 -> BL sub_3487AC (real apply).
+             * 0x3485f0: BLEQ sub_3487AC -> BL (unconditional).
+             * 0x3487bc: BNE (ready!=1) -> NOP.
+             * 0x40f4e0: BNE (match-gate!=1) -> NOP.
+             * 0x40f44c: schedule match (sub_40F44C); BL sub_69F8DC at 0x40f664.
+             * 0x40f58c: BNE when +0x178 < +0x184 -> NOP.
+             * 0x40f640: BLS when schedule_uid <= +0x178 -> NOP.
+             * 0x81e978: BEQ into float clock -> NOP (use time()). */
+            .lod_apply_fn = 0x3487ac,
+            .lod_apply_stub_call = 0x346a00,
+            .lod_apply_stub_skip_bne = 0x3469f8,
+            .lod_apply_tick_gate = 0x3485f0, /* observed only; not rewritten */
+            .lod_apply_ready_bne = 0x3487bc,
+            .lod_apply_match_bne = 0x40f4e0,
+            .lod_match_fn = 0x40f44c,
+            .lod_match_progress_bne = 0x40f58c,
+            .lod_match_uid_bls = 0x40f640,
+            .lod_time_float_beq = 0x81e978,
+            .lod_uid_writer_fn = 0x69f8dc,
             /* The `MOV R1,#1` in sub_737DB8, whose only caller is
              * PurchaseBroker::OnPaymentComplete (sub_72EE30). R1=1 means "POST
              * this receipt to the validation server and wait for $.validation";
@@ -309,8 +356,8 @@ bool game_symbols_detect(const pvz2_elf_image_t *img) {
     for (const GameSymbols &v : kVersions) {
         if (!matches(img, v)) continue;
         g_active = &v;
-        std::printf("pvz2: [version] libPVZ2.so identified as %s (onDrawFrame at 0x%x, verified)\n",
-                    v.version, v.native.on_draw_frame);
+        pvz2_log("[version] libPVZ2.so identified as %s (onDrawFrame at 0x%x, verified)",
+                 v.version, v.native.on_draw_frame);
         return true;
     }
 
@@ -318,15 +365,15 @@ bool game_symbols_detect(const pvz2_elf_image_t *img) {
      * actually there, because that difference is the whole of the work needed
      * to add the build -- and booting on a guess would call whatever function
      * happens to live at another release's offsets. */
-    std::printf("pvz2: [version] this libPVZ2.so matches no known build (%u MB image, %u imports)\n",
-                (unsigned)(img->so_span >> 20), img->trampoline_count);
+    pvz2_log("[version] this libPVZ2.so matches no known build (%u MB image, %u imports)",
+             (unsigned)(img->so_span >> 20), img->trampoline_count);
     for (const GameSymbols &v : kVersions) {
-        std::printf("pvz2: [version]   tried %-8s: onDrawFrame 0x%x expected %016llx, found %016llx\n",
-                    v.version, v.native.on_draw_frame,
-                    (unsigned long long)v.fingerprint_draw_frame,
-                    (unsigned long long)fingerprint_at(img, v.native.on_draw_frame));
+        pvz2_log("[version]   tried %-8s: onDrawFrame 0x%x expected %016llx, found %016llx",
+                 v.version, v.native.on_draw_frame,
+                 (unsigned long long)v.fingerprint_draw_frame,
+                 (unsigned long long)fingerprint_at(img, v.native.on_draw_frame));
     }
-    std::printf("pvz2: [version] add an entry to kVersions in src/game/symbols.cpp to support it\n");
+    pvz2_log("[version] add an entry to kVersions in src/game/symbols.cpp to support it");
     return false;
 }
 

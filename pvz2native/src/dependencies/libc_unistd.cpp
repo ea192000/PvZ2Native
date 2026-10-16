@@ -100,7 +100,7 @@ void fill_random(GuestCall &c, std::uint32_t dst, std::uint32_t count) {
 void c_open(GuestCall &c) {
     std::string gpath = c.cstr(c.arg(0), 1024);
     if (is_random_device(gpath)) {
-        c.log("open(\"%s\") -> OK (synthetic random device, token=0x%08x)", gpath.c_str(),
+        c.log("[io] open(\"%s\") -> OK (synthetic random device, token=0x%08x)", gpath.c_str(),
               kRandomFdToken);
         c.set_result(kRandomFdToken);
         return;
@@ -119,7 +119,7 @@ void c_open(GuestCall &c) {
     } else {
         c.set_errno(2 /* ENOENT */);
     }
-    c.log("open(\"%s\" [%s], 0x%x) -> %s (token=0x%08x)", gpath.c_str(), hpath.c_str(), c.arg(1),
+    c.log("[io] open(\"%s\" [%s], 0x%x) -> %s (token=0x%08x)", gpath.c_str(), hpath.c_str(), c.arg(1),
           fd >= 0 ? "OK" : "FAIL", token);
     c.set_result(token);
 }

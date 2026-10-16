@@ -85,7 +85,7 @@ void c_longjmp(GuestCall &c) {
 /* ------------------------------------------------------------ stack guard */
 
 void c_stack_chk_fail(GuestCall &c) {
-    c.log("__stack_chk_fail() -- the guest detected stack smashing at lr=0x%08x", c.lr());
+    c.log("[libc] __stack_chk_fail() -- the guest detected stack smashing at lr=0x%08x", c.lr());
     c.halt("__stack_chk_fail");
 }
 
@@ -153,7 +153,7 @@ std::string where(const GuestCall &c, std::uint32_t addr) {
  * to start. */
 void c_raise(GuestCall &c) {
     const std::uint32_t sig = c.arg(0);
-    c.log("guest called raise(%u)%s from lr=%s", sig,
+    c.log("[libc] guest called raise(%u)%s from lr=%s", sig,
           sig == 8 ? " [SIGFPE -- on ARM this is __aeabi_idiv0, i.e. an integer divide by zero]"
                    : "",
           where(c, c.lr()).c_str());

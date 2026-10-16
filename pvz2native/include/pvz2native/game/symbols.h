@@ -131,15 +131,19 @@ struct GameSymbols {
      * RegisterNatives, that a Java class fires as a completion callback. This
      * port IS that Java class (see dex/hooks/), so it has to invoke them itself.
      *
-     * `http_transaction_error` is AndroidHttpTransaction's error callback. It
-     * takes (JNIEnv*, jobject thiz, jlong nativeTransaction) and merely ENQUEUES
-     * a failure message onto the same ring buffer PumpMessageQueue drains -- so
-     * it is cheap and safe to call. Without it, every HTTP request the engine
-     * starts hangs forever instead of failing: on a device the Java side times
-     * out after 30s and fires this; here Start() does nothing, so the transaction
-     * never completes and the loading screen that waits on it never finishes.
-     * 0 when not mapped (1.6, which already reaches the menu, is left untouched). */
+     * AndroidHttpTransaction's five-entry JNINativeMethod array, in order:
+     *   HttpReceivedResponse / HttpReceivedData / HttpTransactionComplete /
+     *   HttpTransactionError / HttpTransactionCleanup.
+     * Response/Complete/Error take (JNIEnv*, jobject, jlong nativeTransaction)
+     * and only ENQUEUE onto the ring buffer PumpMessageQueue drains -- cheap and
+     * safe to call nested from Start(). Data also takes (jbyteArray, jint len).
+     * Without Error (or a full success sequence), every HTTP request hangs
+     * forever: on a device Java times out after 30s and fires Error; here Start()
+     * has to do that itself. 0 when not mapped. */
     struct {
+        std::uint32_t http_received_response;
+        std::uint32_t http_received_data;
+        std::uint32_t http_transaction_complete;
         std::uint32_t http_transaction_error;
     } jni_native;
 
@@ -153,6 +157,53 @@ struct GameSymbols {
          * emulated store usable on a port with no network. 0 ends the list, and
          * an all-zero list simply patches nothing. */
         std::uint32_t purchase_online_gate[8];
+
+        /* Same helper (sub_247084), but call sites on the LoD / CDN-apply path.
+         * Global GetNetworkStatus=wifi during onSurfaceCreated hangs the loading
+         * screen; these sites alone get "online" so schedule apply can run while
+         * boot stays offline. 0 ends the list. */
+        std::uint32_t lod_cdn_online_gate[8];
+
+        /* LoD Active-UID writer is only reached via sub_3487AC -> sub_40F44C ->
+         * sub_69F8DC. Dead ends leave alod=0 / wm=[] even with a valid
+         * lod_config day:
+         *   lod_apply_fn -- sub_3487AC itself (entry used by the runtime probe).
+         *   lod_apply_stub_call -- in sub_3469E0, after LevelOfTheDay toggle +
+         *     schedule-singleton init, a BL to sub_40F440 (three BX LR stubs).
+         *     Rewritten to BL sub_3487AC so the real apply runs.
+         *   lod_apply_stub_skip_bne -- in sub_3469E0, BNE that skips the
+         *     stub_call entirely when sub_40D31C != 1. NOP'd so init always
+         *     reaches the (rewritten) apply BL.
+         *   lod_apply_tick_gate -- in sub_3484AC, BLEQ sub_3487AC (left alone;
+         *     forcing it unconditional called apply with r0=predicate).
+         *   lod_apply_ready_bne -- in sub_3487AC, BNE out if sub_40D31C != 1
+         *     (property/toggle gate that stays false offline on this port).
+         *     Rewritten to NOP so schedule matching still runs.
+         *   lod_apply_match_bne -- in sub_40F44C, BNE out if a second
+         *     property gate != 1. Same NOP treatment.
+         *   lod_match_fn -- sub_40F44C itself (schedule match + BL sub_69F8DC).
+         *     Runtime probe entry; apply calls this at 0x348814.
+         *   lod_match_progress_bne -- in sub_40F44C, BNE out when
+         *     (+0x178 < +0x184). That invariant breaks after a UID write that
+         *     does not also refresh +0x178, leaving Active LoD sticky forever.
+         *   lod_match_uid_bls -- in sub_40F44C, BLS that skips the UID writer
+         *     when schedule_uid <= +0x178 (assumes UIDs rise with time; our
+         *     mid-insert days and future holiday UIDs violate that).
+         *   lod_time_float_beq -- in sub_81E960, BEQ into the float/skewed
+         *     clock path. NOP so LoD schedule matching uses host time().
+         *   lod_uid_writer_fn -- sub_69F8DC: STR UID/state at obj+0x184/+0x190.
+         * 0 = not mapped. */
+        std::uint32_t lod_apply_fn;
+        std::uint32_t lod_apply_stub_call;
+        std::uint32_t lod_apply_stub_skip_bne;
+        std::uint32_t lod_apply_tick_gate;
+        std::uint32_t lod_apply_ready_bne;
+        std::uint32_t lod_apply_match_bne;
+        std::uint32_t lod_match_fn;
+        std::uint32_t lod_match_progress_bne;
+        std::uint32_t lod_match_uid_bls;
+        std::uint32_t lod_time_float_beq;
+        std::uint32_t lod_uid_writer_fn;
 
         /* The receipt verdict, which takes two instructions because the engine
          * only ever reaches a "purchase finished" state through its validation

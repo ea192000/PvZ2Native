@@ -1,6 +1,7 @@
 #include <pvz2native/dependencies/dependency.h>
 
 #include <pvz2native/config.h>
+#include <pvz2native/log.h>
 
 #include <atomic>
 #include <cstdarg>
@@ -118,14 +119,13 @@ int GuestCall::fd(std::uint32_t token) const {
 }
 
 void GuestCall::log(const char *fmt, ...) const {
-    char buf[1024];
+    /* Shared host logger: timestamp + [log] enable gate. rt->log_lock is no
+     * longer needed here -- pvz2_log serialises itself. */
+    (void)rt;
     va_list ap;
     va_start(ap, fmt);
-    std::vsnprintf(buf, sizeof(buf), fmt, ap);
+    pvz2_logv(fmt, ap);
     va_end(ap);
-    std::lock_guard<std::mutex> lg(rt->log_lock);
-    std::printf("pvz2: %s\n", buf);
-    std::fflush(stdout);
 }
 
 std::uint32_t GuestCall::errno_addr() const {

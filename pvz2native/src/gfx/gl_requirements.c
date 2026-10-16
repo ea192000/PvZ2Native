@@ -7,6 +7,7 @@
  */
 
 #include <pvz2native/gfx/gl_requirements.h>
+#include <pvz2native/log.h>
 
 #include <glad/gl.h>
 #include <SDL.h>
@@ -66,7 +67,7 @@ int pvz2_gl_check_requirements(struct SDL_Window *window) {
     const int fbo_ok = has_framebuffer_objects();
 
     if (version_ok && fbo_ok) {
-        printf("pvz2: GPU OK -- %s (%s), OpenGL %s -> GLSL %d\n", renderer, vendor, version,
+        pvz2_log("[gl] GPU OK -- %s (%s), OpenGL %s -> GLSL %d", renderer, vendor, version,
                g_target_glsl);
         return 1;
     }
@@ -93,7 +94,7 @@ int pvz2_gl_check_requirements(struct SDL_Window *window) {
              "OpenGL 2.0 cannot run the game -- it has no programmable shaders.",
              renderer, vendor, detail, PVZ2_REQUIRED_GL_MAJOR, PVZ2_REQUIRED_GL_MINOR);
 
-    fprintf(stderr, "pvz2: [gl] requirement not met -- %s\n", message);
+    pvz2_log("[gl] requirement not met -- %s", message);
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "PvZ2 - Unsupported GPU", message,
                              (SDL_Window *)window);
     return 0;

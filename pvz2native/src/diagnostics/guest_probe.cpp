@@ -2,6 +2,7 @@
  * diagnostics.h. */
 
 #include <pvz2native/diagnostics/diagnostics.h>
+#include <pvz2native/log.h>
 
 #include <cstdio>
 #include <cstring>
@@ -15,7 +16,7 @@ namespace diagnostics {
 void dump_dword(pvz2_elf_image_t *img, const char *label, std::uint32_t offset) {
     std::uint32_t value = 0;
     std::memcpy(&value, &img->mem[img->so_base + offset], 4);
-    std::printf("pvz2: [dbg] %s (offset 0x%x) = 0x%08x\n", label, offset, value);
+    pvz2_log("[dbg] %s (offset 0x%x) = 0x%08x", label, offset, value);
 }
 
 namespace {
@@ -53,24 +54,24 @@ void dump_frame_gate(pvz2_elf_image_t *img, const char *when) {
      * halts. That is what a frame costing a fixed ~1052 ticks with zero imports
      * actually is: not a short-circuit branch, an executed void. */
     if (driver == 0) {
-        std::printf("pvz2: [gate] %-22s driver=[0x%08x] is NULL -- nothing has published the "
+        pvz2_log("[gate] %-22s driver=[0x%08x] is NULL -- nothing has published the "
                     "AndroidAppDriver; the byte columns below read absolute low memory, NOT the "
-                    "object\n", when, img->so_base + driver_global);
+                    "object", when, img->so_base + driver_global);
     }
     /* The byte columns only when this build's offsets are actually known. An
      * unmapped build would read driver+0 and print four bytes of the vptr as if
      * they were the gate flags. */
     const auto &p = sym().probe;
     if (p.gate_skip_frame != 0) {
-        std::printf("pvz2: [gate] %-22s driver=[0x%08x]=0x%08x  skip_frame(+%u)=%u  "
-                    "surface(+%u)=%u running(+%u)=%u focus(+%u)=%u\n",
+        pvz2_log("[gate] %-22s driver=[0x%08x]=0x%08x  skip_frame(+%u)=%u  "
+                    "surface(+%u)=%u running(+%u)=%u focus(+%u)=%u",
                     when, img->so_base + driver_global, driver,
                     p.gate_skip_frame, rd8(img, driver + p.gate_skip_frame),
                     p.gate_surface, rd8(img, driver + p.gate_surface),
                     p.gate_running, rd8(img, driver + p.gate_running),
                     p.gate_focus, rd8(img, driver + p.gate_focus));
     } else {
-        std::printf("pvz2: [gate] %-22s driver=[0x%08x]=0x%08x  (gate offsets not mapped for %s)\n",
+        pvz2_log("[gate] %-22s driver=[0x%08x]=0x%08x  (gate offsets not mapped for %s)",
                     when, img->so_base + driver_global, driver, sym().version);
     }
 
@@ -89,7 +90,7 @@ void dump_frame_gate(pvz2_elf_image_t *img, const char *when) {
      * is "it died in the base chain" the app object does not exist yet either. */
     if (p.file_driver != 0) {
         const std::uint32_t fdrv = rd32(img, img->so_base + p.file_driver);
-        std::printf("pvz2: [gate] %-22s file_driver=[0x%08x]=0x%08x  (%s)\n", when,
+        pvz2_log("[gate] %-22s file_driver=[0x%08x]=0x%08x  (%s)", when,
                     img->so_base + p.file_driver, fdrv,
                     fdrv != 0 ? "SexyAppBase's ctor reached its file-driver line"
                               : "NOT created -- the ctor died at or above it, and the "
@@ -100,7 +101,7 @@ void dump_frame_gate(pvz2_elf_image_t *img, const char *when) {
     if (app_global == 0 || p.app_driver_field == 0) return;
     const std::uint32_t app = rd32(img, img->so_base + app_global);
     const std::uint32_t dispatch_obj = rd32(img, app + p.app_driver_field);
-    std::printf("pvz2: [gate] %-22s app=[0x%08x]=0x%08x  *(app+%u)=0x%08x  (%s the driver global)\n",
+    pvz2_log("[gate] %-22s app=[0x%08x]=0x%08x  *(app+%u)=0x%08x  (%s the driver global)",
                 when, img->so_base + app_global, app, p.app_driver_field, dispatch_obj,
                 dispatch_obj == driver ? "SAME as" : "DIFFERENT from");
 
@@ -115,7 +116,7 @@ void dump_frame_gate(pvz2_elf_image_t *img, const char *when) {
     const std::uint32_t slot_off = p.publish_slot - p.driver_vtable;
     const std::uint32_t slot_value = rd32(img, vptr + slot_off);
     const std::uint32_t expected_thunk = img->so_base + p.publish_thunk;
-    std::printf("pvz2: [gate] %-22s vptr=0x%08x (expected AndroidAppDriver vtable 0x%08x, %s); "
+    pvz2_log("[gate] %-22s vptr=0x%08x (expected AndroidAppDriver vtable 0x%08x, %s); "
                 "slot +%u = 0x%08x (publish thunk 0x%08x, %s)\n",
                 when, vptr, expected_vtable, vptr == expected_vtable ? "MATCH" : "mismatch",
                 slot_off, slot_value, expected_thunk,

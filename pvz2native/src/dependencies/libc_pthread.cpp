@@ -15,6 +15,7 @@
  * GameAppInitialize presented.
  */
 
+#include <pvz2native/config.h>
 #include <pvz2native/dependencies/dependency.h>
 
 #include <atomic>
@@ -37,7 +38,8 @@ constexpr std::uint32_t kETIMEDOUT = 110;
  * which is the same epoch the host's system_clock uses. */
 std::chrono::system_clock::time_point deadline_from(GuestCall &c, std::uint32_t ts) {
     std::uint32_t sec = c.read32(ts), nsec = c.read32(ts + 4);
-    const auto d = std::chrono::seconds(sec) + std::chrono::nanoseconds(nsec);
+    /* The guest clock may be shifted by [runtime] force_date; the wait itself runs on the host clock. */
+    const auto d = std::chrono::seconds((long long)sec - pvz2_time_offset_sec()) + std::chrono::nanoseconds(nsec);
     return std::chrono::system_clock::time_point(
         std::chrono::duration_cast<std::chrono::system_clock::duration>(d));
 }

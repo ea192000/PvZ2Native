@@ -32,6 +32,7 @@
 #include <pvz2native/dex/dex.h>
 
 #include <pvz2native/config.h>
+#include <pvz2native/log.h>
 #include <pvz2native/dependencies/dependency.h>
 
 #include <cstdint>
@@ -39,6 +40,7 @@
 #include <cstring>
 #include <map>
 #include <mutex>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -68,12 +70,20 @@ struct Store {
     bool native_ptr_known = false;
     std::vector<Pending> pending;
 
+    /* Every product the engine has ever asked about, in first-asked order. The
+     * engine replaces its price table with each FireDidRefresh, so a refresh
+     * must always report the whole catalogue or the products left out lose
+     * their price (the shop falls back to a bare "Buy"). */
+    std::vector<std::string> catalogue;
+    std::set<std::string> catalogue_set;
+
     /* SkuDetails jobject -> its product id, so the getSku hook can answer for the
      * specific object the engine is asking about. Separate lock: it is read by
      * the SkuDetails getters (which run while FireDidRefresh executes) and would
      * otherwise contend with the delivery holding `lock`. */
     std::mutex sku_lock;
     std::map<std::uint32_t, std::string> sku_by_obj;
+    std::map<std::string, std::uint32_t> obj_by_sku; /* reuse one object per product across refreshes */
 };
 Store &store() {
     static Store s;
@@ -151,7 +161,7 @@ void deliver_complete(pvz2_elf_image_t *img, GuestRuntime *rt, std::uint32_t thi
                       std::uint32_t native_ptr, const std::string &sku) {
     const std::uint32_t fn = find_native_method(kClass, "FirePaymentComplete");
     if (fn == 0) {
-        std::printf("pvz2: [iap] cannot grant \"%s\": FirePaymentComplete native not registered\n",
+        pvz2_log("[iap] cannot grant \"%s\": FirePaymentComplete native not registered",
                     sku.c_str());
         return;
     }
@@ -172,7 +182,7 @@ void deliver_complete(pvz2_elf_image_t *img, GuestRuntime *rt, std::uint32_t thi
     const std::uint32_t g_sig = alloc_gstr(img, rt, signature);
     const std::uint32_t g_order = alloc_gstr(img, rt, order_id);
     if (g_receipt == 0 || g_base64 == 0 || g_sku == 0 || g_json == 0 || g_sig == 0 || g_order == 0) {
-        std::printf("pvz2: [iap] cannot grant \"%s\": guest heap exhausted building the receipt\n",
+        pvz2_log("[iap] cannot grant \"%s\": guest heap exhausted building the receipt",
                     sku.c_str());
         return;
     }
@@ -186,7 +196,7 @@ void deliver_complete(pvz2_elf_image_t *img, GuestRuntime *rt, std::uint32_t thi
         kJniEnvPtrAddr, thiz, native_ptr, 0u, g_receipt, g_base64,
         g_sku,          g_json, g_sig,    g_order, 1u /* originalPurchase */,
     };
-    std::printf("pvz2: [iap] granting \"%s\" -> FirePaymentComplete(fn=0x%08x, ptr=0x%08x)\n",
+    pvz2_log("[iap] granting \"%s\" -> FirePaymentComplete(fn=0x%08x, ptr=0x%08x)",
                 sku.c_str(), fn, native_ptr);
     call_guest_between_frames_n(fn, args, (int)(sizeof(args) / sizeof(args[0])));
 }
@@ -195,7 +205,7 @@ void deliver_refresh(pvz2_elf_image_t *img, GuestRuntime *rt, std::uint32_t thiz
                      std::uint32_t native_ptr, const std::vector<std::string> &skus) {
     const std::uint32_t fn = find_native_method(kClass, "FireDidRefresh");
     if (fn == 0) {
-        std::printf("pvz2: [iap] FireDidRefresh native not registered -- refresh dropped\n");
+        pvz2_log("[iap] FireDidRefresh native not registered -- refresh dropped");
         return;
     }
 
@@ -206,27 +216,47 @@ void deliver_refresh(pvz2_elf_image_t *img, GuestRuntime *rt, std::uint32_t thiz
      * every purchase report "Service Unavailable". So build a SkuDetails[] with
      * one tagged object per queried product. Each object's product id is
      * remembered for the getSku hook; the other fields are constants. */
-    const std::uint32_t n = (std::uint32_t)skus.size();
+    std::uint32_t n = (std::uint32_t)skus.size();
     const std::uint32_t bytes = n > 0 ? n * 4u : 4u; /* a 0-length array still needs a valid handle */
     const std::uint32_t arr = rt->heap.alloc(bytes);
     if (arr == 0 || (std::uint64_t)arr + bytes > img->mem_size) {
-        std::printf("pvz2: [iap] cannot build the SkuDetails array -- heap exhausted\n");
+        pvz2_log("[iap] cannot build the SkuDetails array -- heap exhausted");
         return;
     }
 
-    const std::uint32_t sku_class = rt->find_or_alloc_class(kSkuClass);
+    /* One object per product. They must NOT come from rt->new_object: its handle
+     * pool (guest_memmap.h, 512 handles shared with every class/method id) is
+     * already ~60% used at boot, and once it runs out every further handle
+     * aliases the first one. With 400+ products the ones past the ~300th
+     * (alphabetically: gems, sprouts, plants) all collapsed into one object, so
+     * the engine never saw their price and the shop printed a bare "Buy". A
+     * jobject here is just a distinct non-null word tagged with its class, so a
+     * 4-byte heap block does the job without touching the pool. */
     {
         std::lock_guard<std::mutex> lk(store().sku_lock);
         for (std::uint32_t i = 0; i < n; ++i) {
-            const std::uint32_t obj = rt->new_object(sku_class);
-            store().sku_by_obj[obj] = skus[i];
+            auto it = store().obj_by_sku.find(skus[i]);
+            std::uint32_t obj;
+            if (it != store().obj_by_sku.end()) {
+                obj = it->second;
+            } else {
+                obj = rt->heap.alloc(4);
+                if (obj == 0 || (std::uint64_t)obj + 4 > img->mem_size) {
+                    pvz2_log("[iap] heap exhausted creating SkuDetails #%u -- the rest get no price", i);
+                    n = i;
+                    break;
+                }
+                rt->tag_object_class(obj, kSkuClass);
+                store().sku_by_obj[obj] = skus[i];
+                store().obj_by_sku[skus[i]] = obj;
+            }
             std::memcpy(&img->mem[arr + i * 4], &obj, 4);
         }
     }
     set_array_length(arr, n); /* GetArrayLength must report n, not n*4 -- see jni_env */
 
     const std::uint32_t args[] = {kJniEnvPtrAddr, thiz, native_ptr, 0u, arr};
-    std::printf("pvz2: [iap] FireDidRefresh(fn=0x%08x, ptr=0x%08x, %u sku(s))\n", fn, native_ptr, n);
+    pvz2_log("[iap] FireDidRefresh(fn=0x%08x, ptr=0x%08x, %u sku(s))", fn, native_ptr, n);
     call_guest_between_frames_n(fn, args, (int)(sizeof(args) / sizeof(args[0])));
 }
 
@@ -235,12 +265,17 @@ void deliver_refresh(pvz2_elf_image_t *img, GuestRuntime *rt, std::uint32_t thiz
 /* Reads a Java String[] the engine handed us: each element is a jstring, which
  * in this port IS a pointer to its UTF-8 bytes. The array is one the engine
  * built via NewObjectArray, so its byte size is 4 per element. Capped so a
- * garbage handle cannot spin this into a huge loop. */
+ * garbage handle cannot spin this into a huge loop; the cap must stay well above
+ * the number of products in MAGENTO.RTON (850+ with the modded shop) -- products
+ * past it get no price. */
 std::vector<std::string> read_string_array(DexCall &d, std::uint32_t arr) {
     std::vector<std::string> out;
     if (arr == 0) return out;
     std::uint32_t n = d.c.rt->heap.size_of(arr) / 4u;
-    if (n > 512) n = 512;
+    if (n > 8192) {
+        pvz2_log("[iap] Refresh array reports %u entries -- reading only the first 8192", n);
+        n = 8192;
+    }
     for (std::uint32_t i = 0; i < n; ++i) {
         const std::uint32_t p = d.c.read32(arr + i * 4u);
         if (p != 0) out.push_back(d.c.cstr(p, 256));
@@ -326,11 +361,15 @@ void refresh(DexCall &d) {
     }
     /* Refresh(String[] skus) -- capture the products so the deferred
      * FireDidRefresh can report a real catalogue for exactly these. */
-    std::vector<std::string> skus = read_string_array(d, d.arg(0));
+    const std::vector<std::string> asked = read_string_array(d, d.arg(0));
     Store &s = store();
     std::lock_guard<std::mutex> lk(s.lock);
-    s.pending.push_back({Pending::Refresh, std::string(), std::move(skus)});
-    d.c.log("[iap] Refresh(%zu sku(s)) queued", s.pending.back().skus.size());
+    for (const std::string &k : asked) {
+        if (s.catalogue_set.insert(k).second) s.catalogue.push_back(k);
+    }
+    s.pending.push_back({Pending::Refresh, std::string(), s.catalogue});
+    d.c.log("[iap] Refresh(%zu sku(s)) queued; reporting the whole catalogue (%zu)", asked.size(),
+            s.catalogue.size());
     d.ret(0);
 }
 
@@ -357,8 +396,8 @@ void iap_deliver_pending(pvz2_elf_image_t *img, GuestRuntime *rt) {
     }
 
     if (!ptr_known || thiz == 0) {
-        std::printf("pvz2: [iap] %zu action(s) pending but the driver/native pointer is unknown -- "
-                    "dropping (see the ctor log)\n", due.size());
+        pvz2_log("[iap] %zu action(s) pending but the driver/native pointer is unknown -- "
+                    "dropping (see the ctor log)", due.size());
         return;
     }
 

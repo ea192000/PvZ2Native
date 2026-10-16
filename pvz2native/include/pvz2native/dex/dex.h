@@ -176,6 +176,12 @@ void report_call_census();
 void register_android_game_app(HookTable &t);
 void register_android_surface_view(HookTable &t);
 void register_android_http(HookTable &t);
+
+/* After DidBecomeActive, promote GetNetworkStatus none->wifi so LoD/map online
+ * gates open. Must stay offline through onSurfaceCreated or the loading screen
+ * hangs waiting on content downloads this port cannot finish. */
+void net_mark_boot_finished();
+
 void register_framework_activity(HookTable &t);
 void register_google_play(HookTable &t);
 void register_facebook(HookTable &t);

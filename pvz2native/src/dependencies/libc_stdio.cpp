@@ -399,7 +399,7 @@ void c_fopen(GuestCall &c) {
     } else {
         c.set_errno(2 /* ENOENT */);
     }
-    c.log("fopen(\"%s\" [%s], \"%s\") -> %s (token=0x%08x)", gpath.c_str(), hpath.c_str(),
+    c.log("[io] fopen(\"%s\" [%s], \"%s\") -> %s (token=0x%08x)", gpath.c_str(), hpath.c_str(),
           mode.c_str(), f ? "OK" : "FAIL", token);
     c.set_result(token);
 }
@@ -427,14 +427,31 @@ void c_fread(GuestCall &c) {
     c.set_result(items);
 }
 
+static bool is_host_console(std::FILE *f) {
+    return f == stdout || f == stderr;
+}
+
+/* stdout/stderr are mapped to the host FILE* so fprintf/fwrite do not vanish,
+ * but they must still go through pvz2_log -- otherwise lines like
+ * "SharedNotificationManagerRequired" appear without a tag or timestamp. */
+static void log_guest_console(GuestCall &c, const std::string &s) {
+    c.log("[guest stdout] %s", s.c_str());
+}
+
 void c_fwrite(GuestCall &c) {
     std::uint32_t src = c.arg(0), size = c.arg(1), nmemb = c.arg(2);
     std::FILE *f = c.file(c.arg(3));
     std::uint64_t total = (std::uint64_t)size * nmemb;
     std::uint32_t items = 0;
     if (f != nullptr && size != 0 && total != 0 && c.in_bounds(src, (std::uint32_t)total)) {
-        std::size_t put = std::fwrite(&c.img->mem[src], 1, (std::size_t)total, f);
-        items = (std::uint32_t)(put / size);
+        if (is_host_console(f)) {
+            log_guest_console(c, std::string(reinterpret_cast<const char *>(&c.img->mem[src]),
+                                             (std::size_t)total));
+            items = nmemb;
+        } else {
+            std::size_t put = std::fwrite(&c.img->mem[src], 1, (std::size_t)total, f);
+            items = (std::uint32_t)(put / size);
+        }
     }
     c.set_result(items);
 }
@@ -494,14 +511,34 @@ void c_fgetc(GuestCall &c) {
 void c_fputc(GuestCall &c) {
     std::FILE *f = c.file(c.arg(1));
     int ch = (int)c.arg(0);
-    if (f) std::fputc(ch, f);
+    if (f != nullptr) {
+        if (is_host_console(f)) {
+            /* Line-buffer like putchar so we do not emit one log line per byte. */
+            static std::string console_line;
+            if (ch == '\n') {
+                log_guest_console(c, console_line);
+                console_line.clear();
+            } else {
+                console_line.push_back((char)(ch & 0xFF));
+                if (console_line.size() >= 512) {
+                    log_guest_console(c, console_line);
+                    console_line.clear();
+                }
+            }
+        } else {
+            std::fputc(ch, f);
+        }
+    }
     c.set_result((std::uint32_t)ch);
 }
 
 void c_fputs(GuestCall &c) {
     std::FILE *f = c.file(c.arg(1));
     std::string s = c.cstr(c.arg(0));
-    if (f) std::fwrite(s.data(), 1, s.size(), f);
+    if (f != nullptr) {
+        if (is_host_console(f)) log_guest_console(c, s);
+        else std::fwrite(s.data(), 1, s.size(), f);
+    }
     c.set_result((std::uint32_t)s.size());
 }
 
@@ -635,8 +672,8 @@ void c_fprintf(GuestCall &c) {
     std::FILE *f = c.file(c.arg(0));
     VaSource args = VaSource::from_registers(c, 2);
     std::string s = libc::format(c, c.arg(1), args);
-    if (f != nullptr) std::fwrite(s.data(), 1, s.size(), f);
-    else c.log("[guest stdout] %s", s.c_str()); /* an unmapped stream is almost always stderr */
+    if (f == nullptr || is_host_console(f)) log_guest_console(c, s);
+    else std::fwrite(s.data(), 1, s.size(), f);
     c.set_result((std::uint32_t)s.size());
 }
 
@@ -644,8 +681,8 @@ void c_vfprintf(GuestCall &c) {
     std::FILE *f = c.file(c.arg(0));
     VaSource args = VaSource::from_va_list(c, c.arg(2));
     std::string s = libc::format(c, c.arg(1), args);
-    if (f != nullptr) std::fwrite(s.data(), 1, s.size(), f);
-    else c.log("[guest stdout] %s", s.c_str());
+    if (f == nullptr || is_host_console(f)) log_guest_console(c, s);
+    else std::fwrite(s.data(), 1, s.size(), f);
     c.set_result((std::uint32_t)s.size());
 }
 

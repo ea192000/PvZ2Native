@@ -7,6 +7,7 @@
  */
 
 #include <pvz2native/gfx/frame_limiter.h>
+#include <pvz2native/log.h>
 
 #include <pvz2native/config.h>
 
@@ -41,7 +42,7 @@ void pvz2_frame_limit_init(void) {
          * whatever the monitor does. */
         SDL_GL_SetSwapInterval(0);
         g_frame_ticks = 0;
-        printf("video: frame limit off (vsync off, presenting as fast as the machine manages)\n");
+        pvz2_log("[video] frame limit off (vsync off, presenting as fast as the machine manages)");
         return;
     }
 
@@ -56,7 +57,7 @@ void pvz2_frame_limit_init(void) {
         SDL_GL_SetSwapInterval(1);
     }
     g_frame_ticks = g_perf_freq / (Uint64)fps;
-    printf("video: frame limit %d FPS (vsync on, so the display's refresh rate can cap it lower)\n",
+    pvz2_log("[video] frame limit %d FPS (vsync on, so the display's refresh rate can cap it lower)",
            fps);
 }
 

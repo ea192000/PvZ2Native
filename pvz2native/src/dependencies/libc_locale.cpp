@@ -28,6 +28,7 @@
  */
 
 #include <pvz2native/dependencies/dependency.h>
+#include <pvz2native/log.h>
 
 #include <cstdio>
 #include <cstring>
@@ -220,7 +221,7 @@ void initialize_data_imports(pvz2_elf_image_t *img, GuestRuntime *rt) {
             initialize_sl_interface_id(img, name, addr);
         }
 
-        std::printf("pvz2: [data-import] %-34s -> 0x%08x\n", name, addr);
+        pvz2_log("[data-import] %-34s -> 0x%08x", name, addr);
     }
 }
 

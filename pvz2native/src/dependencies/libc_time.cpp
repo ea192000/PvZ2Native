@@ -7,6 +7,7 @@
  * shifts every field.
  */
 
+#include <pvz2native/config.h>
 #include <pvz2native/dependencies/dependency.h>
 
 #include <algorithm>
@@ -20,9 +21,10 @@ namespace pvz2native {
 namespace {
 
 std::uint64_t now_ns() {
-    return (std::uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(
-               std::chrono::system_clock::now().time_since_epoch())
-        .count();
+    return (std::uint64_t)(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                               std::chrono::system_clock::now().time_since_epoch())
+                               .count() +
+                           pvz2_time_offset_sec() * 1000000000ll);
 }
 
 /* ------------------------------------------------------------- the clock */

@@ -17,6 +17,7 @@
  */
 
 #include <pvz2native/dependencies/dependency.h>
+#include <pvz2native/log.h>
 #include <pvz2native/config.h>
 #include <pvz2native/gfx/gl_requirements.h>
 #include <pvz2native/surface.h>
@@ -30,8 +31,10 @@
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <algorithm>
 #include <set>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -437,6 +440,13 @@ void log_gl_step(GuestCall &c, const char *what, int a, int b) {
 }
 
 void gl_glDrawArrays(GuestCall &c) {
+    /* Everything below is diagnostics from the black-screen hunt: glGet* calls and glGetError
+     * on every draw, each one a driver sync point (very costly on virtual GPUs). Only paid
+     * when [gl] strict is on. */
+    if (!gl_strict_enabled()) {
+        glDrawArrays(c.arg(0), c.arg(1), c.arg(2));
+        return;
+    }
     /* The composite pass is the draw that happens with the window bound.
      *
      * Draw #0 puts real pixels on the window (9/9 non-black); every later one
@@ -527,7 +537,7 @@ void gl_glDrawArrays(GuestCall &c) {
 
 void gl_glDrawElements(GuestCall &c) {
     glDrawElements(c.arg(0), c.arg(1), c.arg(2), c.ptr(c.arg(3)));
-    report_gl_error(c, "glDrawElements");
+    if (gl_strict_enabled()) report_gl_error(c, "glDrawElements");
 }
 
 void gl_glViewport(GuestCall &c) {
@@ -660,7 +670,7 @@ void gl_glBindFramebuffer(GuestCall &c) {
     log_gl_step(c, "glBindFramebuffer ->", (int)c.arg(1), 0);
     /* Probe on the way OUT of an offscreen target: that is the only moment the
      * scene is finished and still readable. */
-    if (c.arg(1) == 0) {
+    if (c.arg(1) == 0 && gl_strict_enabled()) {
         GLint current = 0;
         glGetIntegerv(GL_FRAMEBUFFER_BINDING, &current);
         if (current != 0) probe_framebuffer_contents(c, (GLuint)current);
@@ -724,7 +734,7 @@ void gl_glCompileShader(GuestCall &c) {
         GLsizei len = 0;
         glGetShaderInfoLog(shader, (GLsizei)sizeof(log) - 1, &len, log);
         std::lock_guard<std::mutex> lg(c.rt->log_lock);
-        std::printf("pvz2: [gl] SHADER %u FAILED TO COMPILE: %s\n", shader, log);
+        pvz2_log("[gl] SHADER %u FAILED TO COMPILE: %s", shader, log);
     }
 }
 
@@ -740,7 +750,7 @@ void gl_glLinkProgram(GuestCall &c) {
         GLsizei len = 0;
         glGetProgramInfoLog(program, (GLsizei)sizeof(log) - 1, &len, log);
         std::lock_guard<std::mutex> lg(c.rt->log_lock);
-        std::printf("pvz2: [gl] PROGRAM %u FAILED TO LINK: %s\n", program, log);
+        pvz2_log("[gl] PROGRAM %u FAILED TO LINK: %s", program, log);
     }
 }
 
@@ -775,8 +785,11 @@ inline int etc1_ext4(int v) { return (v << 4) | v; }               /* 4 bits -> 
 inline int etc1_ext5(int v) { v &= 0x1f; return (v << 3) | (v >> 2); } /* 5 bits -> 8 */
 inline int etc1_diff3(int v) { v &= 7; return v < 4 ? v : v - 8; }  /* 3-bit signed delta */
 
-void etc1_decode_block(const std::uint8_t *b, std::uint8_t *out, int width, int height, int ox0,
-                       int oy0) {
+/* Decodes one block. `full` means the 4x4 block lies entirely inside the image, which is
+ * every block but the right/bottom edge of a size that is not a multiple of 4. */
+template <bool full>
+inline void etc1_decode_block(const std::uint8_t *b, std::uint8_t *out, int width, int height,
+                              int ox0, int oy0) {
     const std::uint32_t hi = (std::uint32_t)b[0] << 24 | (std::uint32_t)b[1] << 16 |
                              (std::uint32_t)b[2] << 8 | b[3];
     const std::uint32_t lo = (std::uint32_t)b[4] << 24 | (std::uint32_t)b[5] << 16 |
@@ -798,16 +811,17 @@ void etc1_decode_block(const std::uint8_t *b, std::uint8_t *out, int width, int 
     }
     const int *t1 = kEtc1Modifier[(hi >> 5) & 7];
     const int *t2 = kEtc1Modifier[(hi >> 2) & 7];
+    const std::size_t stride = (std::size_t)width * 3;
 
     for (int px = 0; px < 4; ++px) {
+        if (!full && ox0 + px >= width) break;
         for (int py = 0; py < 4; ++py) {
+            if (!full && oy0 + py >= height) break;
             const int k = py + px * 4; /* pixel bit index: column-major */
             const int idx = (int)(((lo >> k) & 1) | (((lo >> (k + 16)) & 1) << 1));
             const bool sub2 = flip ? (py >= 2) : (px >= 2);
             const int mod = sub2 ? t2[idx] : t1[idx];
-            const int ox = ox0 + px, oy = oy0 + py;
-            if (ox >= width || oy >= height) continue;
-            std::uint8_t *p = out + ((std::size_t)oy * width + ox) * 3;
+            std::uint8_t *p = out + (std::size_t)(oy0 + py) * stride + (std::size_t)(ox0 + px) * 3;
             p[0] = (std::uint8_t)etc1_clamp8((sub2 ? r2 : r1) + mod);
             p[1] = (std::uint8_t)etc1_clamp8((sub2 ? g2 : g1) + mod);
             p[2] = (std::uint8_t)etc1_clamp8((sub2 ? b2 : b1) + mod);
@@ -815,19 +829,48 @@ void etc1_decode_block(const std::uint8_t *b, std::uint8_t *out, int width, int 
     }
 }
 
+/* Block rows [by0, by1) of an image bw x bh blocks. Every in-bounds pixel is written, so the
+ * output needs no zero fill beforehand. */
+void etc1_decode_rows(const std::uint8_t *src, std::uint8_t *out, int width, int height, int bw,
+                      int bh, int by0, int by1) {
+    for (int by = by0; by < by1; ++by) {
+        const std::uint8_t *p = src + (std::size_t)by * bw * 8;
+        const bool row_full = (by * 4 + 4) <= height;
+        for (int bx = 0; bx < bw; ++bx, p += 8) {
+            if (row_full && (bx * 4 + 4) <= width) etc1_decode_block<true>(p, out, width, height, bx * 4, by * 4);
+            else etc1_decode_block<false>(p, out, width, height, bx * 4, by * 4);
+        }
+    }
+    (void)bh;
+}
+
 /* Decodes a full ETC1 image (width*height, row-major RGB8). Returns false when
  * the source is too small for the dimensions, so the caller can fall back to the
- * raw upload rather than read past the buffer. */
+ * raw upload rather than read past the buffer. `out` only ever grows (it is a reused scratch
+ * buffer), and big images are split by block rows over a few threads. */
 bool etc1_decode(const std::uint8_t *src, int imageSize, int width, int height,
                  std::vector<std::uint8_t> &out) {
     if (src == nullptr || width <= 0 || height <= 0) return false;
     const int bw = (width + 3) / 4, bh = (height + 3) / 4;
     if ((long long)bw * bh * 8 > imageSize) return false;
-    out.assign((std::size_t)width * height * 3, 0);
-    const std::uint8_t *p = src;
-    for (int by = 0; by < bh; ++by)
-        for (int bx = 0; bx < bw; ++bx, p += 8)
-            etc1_decode_block(p, out.data(), width, height, bx * 4, by * 4);
+    const std::size_t need = (std::size_t)width * height * 3;
+    if (out.size() < need) out.resize(need);
+
+    unsigned workers = std::thread::hardware_concurrency();
+    if (workers > 4) workers = 4;
+    if (workers < 2 || (long long)bw * bh < 16384 || bh < 8) {
+        etc1_decode_rows(src, out.data(), width, height, bw, bh, 0, bh);
+        return true;
+    }
+    std::vector<std::thread> pool;
+    const int per = (bh + (int)workers - 1) / (int)workers;
+    for (unsigned t = 1; t < workers; ++t) {
+        const int y0 = (int)t * per, y1 = std::min(bh, y0 + per);
+        if (y0 >= y1) break;
+        pool.emplace_back(etc1_decode_rows, src, out.data(), width, height, bw, bh, y0, y1);
+    }
+    etc1_decode_rows(src, out.data(), width, height, bw, bh, 0, std::min(bh, per));
+    for (auto &th : pool) th.join();
     return true;
 }
 
@@ -878,6 +921,26 @@ void log_compressed_support_once(GuestCall &c) {
     }
 }
 
+std::atomic<bool> g_etc2_checked{false};
+std::atomic<bool> g_etc2_failed{false};
+
+/* True when the host driver lists COMPRESSED_RGB8_ETC2 and nothing has gone wrong with it.
+ * The format list is read once, on the GL thread, at the first ETC1 upload. */
+bool etc2_passthrough_ok() {
+    static int listed = -1;
+    if (g_etc2_failed.load(std::memory_order_relaxed) || pvz2_config()->gl_no_etc2) return false;
+    if (listed < 0) {
+        listed = 0;
+        GLint n = 0;
+        glGetIntegerv(0x86A2 /* GL_NUM_COMPRESSED_TEXTURE_FORMATS */, &n);
+        if (n > 128) n = 128;
+        std::vector<GLint> formats((std::size_t)(n > 0 ? n : 0), 0);
+        if (n > 0) glGetIntegerv(0x86A3 /* GL_COMPRESSED_TEXTURE_FORMATS */, formats.data());
+        for (GLint f : formats) listed |= (f == 0x9274);
+    }
+    return listed == 1;
+}
+
 void gl_glCompressedTexImage2D(GuestCall &c) {
     const GLenum internalformat = (GLenum)c.arg(2);
     const GLsizei width = (GLsizei)c.arg(3);
@@ -912,6 +975,19 @@ void gl_glCompressedTexImage2D(GuestCall &c) {
      * format. A per-thread scratch buffer avoids re-allocating a few MB on every
      * texture; GL runs on one thread, but thread_local costs nothing anyway. */
     if (internalformat == 0x8D64 /* GL_ETC1_RGB8_OES */) {
+        /* ETC2 is a superset of ETC1 with identical block size and decoding for ETC1 data, so a
+         * driver that lists COMPRESSED_RGB8_ETC2 can take the blocks as they are: no CPU
+         * decode, and 1/6 of the video memory. The first upload is checked with glGetError;
+         * if the driver refuses it, the CPU decode below takes over for good. */
+        if (etc2_passthrough_ok()) {
+            const bool first = !g_etc2_checked.exchange(true);
+            if (first) (void)glGetError();
+            glCompressedTexImage2D(c.arg(0), level, 0x9274 /* GL_COMPRESSED_RGB8_ETC2 */, width,
+                                   height, c.arg(5), imageSize, data);
+            if (!first || glGetError() == GL_NO_ERROR) return;
+            g_etc2_failed.store(true);
+            c.log("[gl] driver rejected ETC1 as ETC2 -- decoding ETC1 on the CPU instead");
+        }
         static thread_local std::vector<std::uint8_t> rgb;
         if (etc1_decode((const std::uint8_t *)data, imageSize, width, height, rgb)) {
             glTexImage2D(c.arg(0), level, 0x8051 /* GL_RGB8 */, width, height, 0,

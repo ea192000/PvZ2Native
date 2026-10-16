@@ -224,12 +224,12 @@ void c_mktemp(GuestCall &c) { c.set_result(c.arg(0)); }
 /* ------------------------------------------------------------------ exit */
 
 void c_exit(GuestCall &c) {
-    c.log("guest called exit(%d)", (std::int32_t)c.arg(0));
+    c.log("[libc] guest called exit(%d)", (std::int32_t)c.arg(0));
     c.halt("exit");
 }
 
 void c_abort(GuestCall &c) {
-    c.log("guest called abort()");
+    c.log("[libc] guest called abort()");
     c.halt("abort");
 }
 

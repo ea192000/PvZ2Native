@@ -65,12 +65,18 @@ typedef struct pvz2_config {
     /* [runtime] -- how the emulator behaves. */
     int no_page_table;        /* route guest memory through the slow callback path */
     unsigned heap_quarantine; /* hold the N most-recently-freed heap blocks out of reuse */
+    /* 1 = re-copy OBB Packages into userdata/CDN.<tag> every launch (overwrite).
+     * 0 = seed only when the CDN folder is missing / not yet .seeded. */
+    int rewrite_cdn;
+    char force_date[32];    /* [runtime] force_date: "YYYY-MM-DD [HH:MM[:SS]]" local time the game sees; empty = real clock */
+    int lod_legacy_hacks;   /* 1 = old daily-pinata workarounds (progress/uid-order patches + completed-field reset) */
 
     /* [gl] -- rendering diagnostics. */
     int gl_debug_clear;     /* force a loud clear colour instead of the engine's black */
     int gl_no_viewport_fix; /* disable the zero-size viewport substitution */
     int gl_flat_fragment;   /* replace every fragment shader body with a constant colour */
     int gl_strict;          /* query GL state on every suspicious call */
+    int gl_no_etc2;         /* always decode ETC1 on the CPU, never hand it to the GPU as ETC2 */
 
     /* [game] -- what the engine is told about the "device".
      *
@@ -151,15 +157,13 @@ typedef struct pvz2_config {
     /* What AndroidHttpProxy.GetNetworkStatus() reports to the engine:
      *   0 -- no network        1 -- mobile        2 -- Wi-Fi
      *
-     * Defaults to 0 and should stay there: this port has no network stack, and a
-     * connected answer makes the boot hang on the loading screen waiting for
-     * downloads that can never arrive (measured on 4.5.2, not theorised).
-     *
-     * It is configurable only because the value is also what the purchase broker
-     * consults before allowing a purchase -- which is why buying used to report
-     * "Service Unavailable". That is now solved without lying to the whole
-     * engine: the broker's own connectivity check is rewritten in the loaded
-     * image (game/patches.h), so the store works with this at 0. */
+     * Default 0 (none): boot must stay offline or the loading screen waits on
+     * real-network downloads this port cannot fetch. After DidBecomeActive the
+     * hook promotes none -> wifi after DidBecomeActive so LoD/map online gates
+     * open against OBB Packages. Stay offline through surface or loading hangs.
+     * Set mobile/wifi explicitly to force that
+     * answer even during boot (can hang if CDN isn't fully seeded). Purchases
+     * do not need this -- see game/patches.h. */
     int network_status;
 
     /* Persist the engine's key/value store (its SharedPreferences equivalent) to
@@ -219,6 +223,11 @@ void pvz2_config_load(const char *ini_path, const char *base_dir);
  * Returns 1 if the key exists and was applied, 0 otherwise. `bind_*` and the
  * [shortcuts] section are intentionally not supported here. */
 int pvz2_config_override(const char *name, const char *value);
+
+/* Seconds to ADD to the host clock to get the time the guest sees: 0 unless [runtime] force_date
+ * is set. The forced date is where the clock starts; it then runs normally. Computed once, on the
+ * first call. */
+long long pvz2_time_offset_sec(void);
 
 /* The loaded config. Never NULL: before pvz2_config_load runs it returns an
  * all-defaults (all-off, empty paths) instance, so shim code can read it

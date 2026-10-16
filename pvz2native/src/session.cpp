@@ -18,6 +18,7 @@
  */
 
 #include <atomic>
+#include <pvz2native/log.h>
 #include <cstdio>
 #include <cstdlib>
 
@@ -95,7 +96,7 @@ extern "C" void pvz2_session_status(char *out, size_t n) { rt_::copy_status(out,
 extern "C" pvz2_session_t *pvz2_session_start(const char *so_path) {
     auto *s = new pvz2_session();
     if (pvz2_elf_load(so_path, rt_::kAddressSpaceSize, &s->img) != 0) {
-        std::printf("pvz2: failed to load '%s'\n", so_path);
+        pvz2_log("[session] failed to load '%s'", so_path);
         delete s;
         return nullptr;
     }
@@ -138,6 +139,10 @@ extern "C" pvz2_session_t *pvz2_session_start(const char *so_path) {
      * session -- the OpenSL layer mints trampolines through both. */
     rt_::set_session_image(&s->img, &s->rt);
 
+    /* Needs the session image (make_guest_callback). Before any guest code so
+     * the SVC at sub_3487AC is visible to the first JIT translation. */
+    pvz2native::game_install_lod_apply_probe(&s->img);
+
     /* Load-time bring-up, then the registered-native lifecycle, in the exact
      * order the real Android runtime uses -- see engine/. */
     engine::boot_native_library(&s->img, &s->rt);
@@ -170,7 +175,7 @@ extern "C" int pvz2_session_frame(pvz2_session_t *s) {
      * it is what makes jit.Run() return often enough to sample at all. */
     if (pvz2_config()->pc_sample && s->frames_run == kSteadyStateSampleFrame) {
         s->sample_frames_left = kPcSampleFrames;
-        std::printf("pvz2: ==== tracing frames %d..%d instruction-by-instruction ====\n",
+        pvz2_log("[trace] ==== tracing frames %d..%d instruction-by-instruction ====",
                     s->frames_run, s->frames_run + kPcSampleFrames - 1);
     }
     if (s->sample_frames_left > 0) {
@@ -180,12 +185,12 @@ extern "C" int pvz2_session_frame(pvz2_session_t *s) {
     if (pvz2_config()->trace && s->frames_run == kSteadyStateSampleFrame) {
         s->trace_frames_left = 2;
         pvz2native::trace::set(true);
-        std::printf("pvz2: ==== steady-state sample: tracing frames %d..%d ====\n", s->frames_run,
+        pvz2_log("[trace] ==== steady-state sample: tracing frames %d..%d ====", s->frames_run,
                     s->frames_run + s->trace_frames_left - 1);
     }
     if (s->trace_frames_left > 0 && --s->trace_frames_left == 0) {
         pvz2native::trace::set(false);
-        std::printf("pvz2: ==== end steady-state sample ====\n");
+        pvz2_log("[trace] ==== end steady-state sample ====");
         std::fflush(stdout);
     }
 
@@ -208,7 +213,7 @@ extern "C" int pvz2_session_frame(pvz2_session_t *s) {
 
     if (s->sample_frames_left > 0 && --s->sample_frames_left == 0) {
         rt_::set_slice_override(0);
-        std::printf("pvz2: ==== end instruction trace ====\n");
+        pvz2_log("[trace] ==== end instruction trace ====");
         std::fflush(stdout);
     }
 
@@ -233,8 +238,8 @@ extern "C" int pvz2_session_frame(pvz2_session_t *s) {
          * a black window, and they are unrelated bugs. A frame worth a handful
          * of imports and no ticks is the second. */
         const rt_::CallStats &f = rt_::last_call_stats();
-        std::printf("pvz2: [input] heartbeat -- frame %d  (last frame: %u imports, %u jni, "
-                    "%llu ticks, %.2f ms)\n",
+        pvz2_log("[input] heartbeat -- frame %d  (last frame: %u imports, %u jni, "
+                    "%llu ticks, %.2f ms)",
                     s->frames_run, f.import_calls, f.jni_calls, (unsigned long long)f.ticks, f.ms);
 
         /* Heap use and audio health over time. The point is the TREND across
@@ -249,8 +254,8 @@ extern "C" int pvz2_session_frame(pvz2_session_t *s) {
         s->rt.heap.usage(heap_in_use, heap_peak, heap_total);
         std::uint64_t underruns = 0, enqueue_fails = 0;
         pvz2native::audio::diag(underruns, enqueue_fails);
-        std::printf("pvz2: [health] heap %llu/%llu MB (peak %llu) | audio queued %u underruns %llu "
-                    "enqueue-fails %llu\n",
+        pvz2_log("[health] heap %llu/%llu MB (peak %llu) | audio queued %u underruns %llu "
+                    "enqueue-fails %llu",
                     (unsigned long long)(heap_in_use >> 20), (unsigned long long)(heap_total >> 20),
                     (unsigned long long)(heap_peak >> 20), pvz2native::audio::queued_count(),
                     (unsigned long long)underruns, (unsigned long long)enqueue_fails);

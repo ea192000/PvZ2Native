@@ -1,4 +1,5 @@
 #include <pvz2native/elf32/elf32_loader.h>
+#include <pvz2native/log.h>
 #include <pvz2native/elf32/elf32_defs.h>
 
 #include <stdio.h>
@@ -58,8 +59,8 @@ static uint32_t get_or_create_trampoline(pvz2_elf_image_t *img, const char *name
         }
     }
     if (img->trampoline_count >= img->trampoline_capacity) {
-        fprintf(stderr, "elf32_loader: trampoline table full (max %u), cannot import '%s' -- "
-                "raise PVZ2_TRAMPOLINE_MAX in elf32_loader.h\n", img->trampoline_capacity, name);
+        pvz2_log("[elf32] trampoline table full (max %u), cannot import '%s' -- "
+                "raise PVZ2_TRAMPOLINE_MAX in elf32_loader.h", img->trampoline_capacity, name);
         img->import_overflow = 1; /* binds this symbol to 0; see the field's comment */
         return 0;
     }
@@ -87,8 +88,8 @@ static uint32_t get_or_create_data_import(pvz2_elf_image_t *img, const char *nam
         }
     }
     if (img->data_import_count >= PVZ2_DATA_IMPORT_MAX) {
-        fprintf(stderr, "elf32_loader: data-import table full (max %u), cannot import '%s' -- "
-                "raise PVZ2_DATA_IMPORT_MAX\n", (unsigned)PVZ2_DATA_IMPORT_MAX, name);
+        pvz2_log("[elf32] data-import table full (max %u), cannot import '%s' -- "
+                "raise PVZ2_DATA_IMPORT_MAX", (unsigned)PVZ2_DATA_IMPORT_MAX, name);
         img->import_overflow = 1;
         return 0;
     }
@@ -179,10 +180,10 @@ static void apply_relocations(pvz2_elf_image_t *img, uint32_t mod_index, uint32_
                 break;
             }
             case R_ARM_COPY:
-                fprintf(stderr, "elf32_loader: unexpected R_ARM_COPY relocation, skipping\n");
+                pvz2_log("[elf32] unexpected R_ARM_COPY relocation, skipping");
                 break;
             default:
-                fprintf(stderr, "elf32_loader: unhandled relocation type %u at offset 0x%08x\n",
+                pvz2_log("[elf32] unhandled relocation type %u at offset 0x%08x",
                         type, rel[i].r_offset);
                 break;
         }
@@ -217,16 +218,16 @@ static int validate_header(const Elf32_Ehdr *eh, long file_size, const char *pat
     if ((size_t)file_size < sizeof(Elf32_Ehdr) ||
         eh->e_ident[EI_MAG0] != 0x7f || eh->e_ident[EI_MAG1] != 'E' ||
         eh->e_ident[EI_MAG2] != 'L' || eh->e_ident[EI_MAG3] != 'F') {
-        fprintf(stderr, "elf32_loader: '%s' is not an ELF file\n", path);
+        pvz2_log("[elf32] '%s' is not an ELF file", path);
         return -1;
     }
     if (eh->e_ident[EI_CLASS] != ELFCLASS32 || eh->e_machine != EM_ARM) {
-        fprintf(stderr, "elf32_loader: '%s' is not a 32-bit ARM ELF (class=%d machine=%d)\n",
+        pvz2_log("[elf32] '%s' is not a 32-bit ARM ELF (class=%d machine=%d)",
                 path, eh->e_ident[EI_CLASS], eh->e_machine);
         return -1;
     }
     if (eh->e_type != ET_DYN && eh->e_type != ET_EXEC) {
-        fprintf(stderr, "elf32_loader: '%s' has unsupported e_type %d\n", path, eh->e_type);
+        pvz2_log("[elf32] '%s' has unsupported e_type %d", path, eh->e_type);
         return -1;
     }
     return 0;
@@ -246,7 +247,7 @@ static int validate_header(const Elf32_Ehdr *eh, long file_size, const char *pat
 static int peek_load_span(const char *path, uint32_t *span_out) {
     FILE *f = fopen(path, "rb");
     if (!f) {
-        fprintf(stderr, "elf32_loader: cannot open '%s'\n", path);
+        pvz2_log("[elf32] cannot open '%s'", path);
         return -1;
     }
     if (fseek(f, 0, SEEK_END) != 0) {
@@ -264,7 +265,7 @@ static int peek_load_span(const char *path, uint32_t *span_out) {
 
     const size_t phdr_bytes = (size_t)eh.e_phnum * sizeof(Elf32_Phdr);
     if (eh.e_phnum == 0 || (long)(eh.e_phoff + phdr_bytes) > file_size) {
-        fprintf(stderr, "elf32_loader: '%s' has no usable program headers\n", path);
+        pvz2_log("[elf32] '%s' has no usable program headers", path);
         fclose(f);
         return -1;
     }
@@ -273,7 +274,7 @@ static int peek_load_span(const char *path, uint32_t *span_out) {
         fread(phdrs, 1, phdr_bytes, f) != phdr_bytes) {
         free(phdrs);
         fclose(f);
-        fprintf(stderr, "elf32_loader: '%s' has a truncated program header table\n", path);
+        pvz2_log("[elf32] '%s' has a truncated program header table", path);
         return -1;
     }
     fclose(f);
@@ -298,7 +299,7 @@ static int map_module(pvz2_elf_image_t *img, const char *path, uint32_t base, ui
     long file_size = 0;
     uint8_t *file_buf = read_file(path, &file_size);
     if (!file_buf) {
-        fprintf(stderr, "elf32_loader: cannot read '%s'\n", path);
+        pvz2_log("[elf32] cannot read '%s'", path);
         return -1;
     }
     const Elf32_Ehdr *eh = (const Elf32_Ehdr *)file_buf;
@@ -350,12 +351,12 @@ static int map_module(pvz2_elf_image_t *img, const char *path, uint32_t base, ui
         }
     }
     if (dynamic_vaddr == 0) {
-        fprintf(stderr, "elf32_loader: '%s' has no PT_DYNAMIC segment\n", path);
+        pvz2_log("[elf32] '%s' has no PT_DYNAMIC segment", path);
         free(file_buf);
         return -1;
     }
     if (base + span > img->mem_size) {
-        fprintf(stderr, "elf32_loader: no room for '%s' at 0x%08x (needs 0x%x, space is 0x%08x)\n",
+        pvz2_log("[elf32] no room for '%s' at 0x%08x (needs 0x%x, space is 0x%08x)",
                 path, base, span, img->mem_size);
         free(file_buf);
         return -1;
@@ -389,7 +390,7 @@ static int map_module(pvz2_elf_image_t *img, const char *path, uint32_t base, ui
         }
     }
     if (!strtab_vaddr || !symtab_vaddr) {
-        fprintf(stderr, "elf32_loader: '%s' missing DT_STRTAB/DT_SYMTAB\n", path);
+        pvz2_log("[elf32] '%s' missing DT_STRTAB/DT_SYMTAB", path);
         free(file_buf);
         return -1;
     }
@@ -406,8 +407,8 @@ static int map_module(pvz2_elf_image_t *img, const char *path, uint32_t base, ui
          * it can neither export to another module nor be searched by
          * pvz2_elf_find_symbol. Worth saying out loud rather than behaving as
          * if the module exported nothing. */
-        fprintf(stderr, "elf32_loader: '%s' has no DT_HASH (GNU hash only) -- its exports are "
-                        "invisible to symbol lookup\n", path);
+        pvz2_log("[elf32] '%s' has no DT_HASH (GNU hash only) -- its exports are "
+                        "invisible to symbol lookup", path);
         m->dynsym_count = 0;
     }
 
@@ -471,22 +472,22 @@ static int map_dependencies(pvz2_elf_image_t *img, const char *dir, uint32_t *ne
                     continue;
                 }
                 if (img->module_count >= PVZ2_MAX_MODULES) {
-                    fprintf(stderr, "elf32_loader: '%s' needs '%s', but the module table is full "
-                            "(%u mapped, max %u) -- raise PVZ2_MAX_MODULES in elf32_loader.h\n",
+                    pvz2_log("[elf32] '%s' needs '%s', but the module table is full "
+                            "(%u mapped, max %u) -- raise PVZ2_MAX_MODULES in elf32_loader.h",
                             m->name, name, img->module_count, (unsigned)PVZ2_MAX_MODULES);
                     return -1;
                 }
                 uint32_t base = (*next_base + PVZ2_MODULE_ALIGN - 1) & ~(PVZ2_MODULE_ALIGN - 1);
                 uint32_t index = img->module_count;
                 if (map_module(img, path, base, index, NULL) != 0) {
-                    fprintf(stderr, "elf32_loader: '%s' needs '%s', which ships at '%s' but could "
-                            "not be mapped (see the error above)\n", m->name, name, path);
+                    pvz2_log("[elf32] '%s' needs '%s', which ships at '%s' but could "
+                            "not be mapped (see the error above)", m->name, name, path);
                     return -1;
                 }
                 img->module_count = index + 1;
                 *next_base = base + img->modules[index].span;
                 idx = (int)index;
-                printf("elf32_loader:   dependency '%s' mapped at 0x%08x..0x%08x (%u KB, %u exports)\n",
+                pvz2_log("[elf32] dependency '%s' mapped at 0x%08x..0x%08x (%u KB, %u exports)",
                        img->modules[index].name, base, base + img->modules[index].span,
                        img->modules[index].span >> 10, img->modules[index].dynsym_count);
                 /* map_module may have reallocated nothing, but `m` points into
@@ -538,7 +539,7 @@ int pvz2_elf_load(const char *path, uint32_t space_size, pvz2_elf_image_t *out) 
         required = PVZ2_TRAMPOLINE_BASE + trampoline_bytes;
     }
     if (space_size < required) {
-        fprintf(stderr, "elf32_loader: space_size 0x%08x too small, need at least 0x%08x\n",
+        pvz2_log("[elf32] space_size 0x%08x too small, need at least 0x%08x",
                 space_size, required);
         return -1;
     }
@@ -551,7 +552,7 @@ int pvz2_elf_load(const char *path, uint32_t space_size, pvz2_elf_image_t *out) 
      * slack absorbs that; mem_size still describes the addressable space. */
     out->mem = (uint8_t *)calloc(1, (size_t)space_size + PVZ2_MEM_GUARD_SLACK);
     if (!out->mem) {
-        fprintf(stderr, "elf32_loader: failed to allocate %u bytes of emulated address space\n", space_size);
+        pvz2_log("[elf32] failed to allocate %u bytes of emulated address space", space_size);
         return -1;
     }
     out->mem_size = space_size;
@@ -616,8 +617,8 @@ int pvz2_elf_load(const char *path, uint32_t space_size, pvz2_elf_image_t *out) 
      * that lost its binding, which is what says how much bigger the table needs
      * to be. */
     if (out->import_overflow) {
-        fprintf(stderr, "elf32_loader: refusing to run '%s': the import tables overflowed and the "
-                "symbols named above are bound to address 0\n", path);
+        pvz2_log("[elf32] refusing to run '%s': the import tables overflowed and the "
+                "symbols named above are bound to address 0", path);
         pvz2_elf_free(out);
         return -1;
     }
@@ -650,19 +651,25 @@ int pvz2_elf_load(const char *path, uint32_t space_size, pvz2_elf_image_t *out) 
     out->init_array_vaddr = out->modules[0].init_array_vaddr;
     out->init_array_count = out->modules[0].init_array_count;
 
-    printf("elf32_loader: loaded '%s' at base=0x%08x span=0x%x entry=0x%08x symbols=%u imports=%u init_array=%u\n",
+    pvz2_log("[elf32] loaded '%s' at base=0x%08x span=0x%x entry=0x%08x symbols=%u imports=%u init_array=%u",
            path, out->so_base, out->so_span, out->so_entry, out->dynsym_count, out->trampoline_count,
            out->init_array_count);
-    printf("elf32_loader: read-only (R+X) range 0x%08x..0x%08x (%u KB), foldable at translation time\n",
+    pvz2_log("[elf32] read-only (R+X) range 0x%08x..0x%08x (%u KB), foldable at translation time",
            out->so_base + out->text_vaddr, out->so_base + out->text_vaddr + out->text_size,
            out->text_size >> 10);
     if (out->module_count > 1) {
-        printf("elf32_loader: %u modules mapped, images end at 0x%08x; constructor order:",
-               out->module_count, out->images_end);
+        char order[512];
+        size_t used = 0;
+        order[0] = '\0';
         for (uint32_t i = 0; i < count; ++i) {
-            printf(" %s", out->modules[out->init_order[i]].name);
+            const char *nm = out->modules[out->init_order[i]].name;
+            int n = snprintf(order + used, sizeof(order) - used, "%s%s",
+                             used ? " " : "", nm ? nm : "?");
+            if (n < 0 || (size_t)n >= sizeof(order) - used) break;
+            used += (size_t)n;
         }
-        printf("\n");
+        pvz2_log("[elf32] %u modules mapped, images end at 0x%08x; constructor order: %s",
+                 out->module_count, out->images_end, order);
     }
 
     return 0;

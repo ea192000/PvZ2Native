@@ -4,12 +4,13 @@
 
 #include <pvz2native/engine/engine.h>
 
-#include <cstdio>
 #include <cstring>
 #include <vector>
 
 #include <pvz2native/diagnostics/diagnostics.h>
+#include <pvz2native/dex/dex.h>
 #include <pvz2native/game/symbols.h>
+#include <pvz2native/log.h>
 #include <pvz2native/runtime/dynarmic_config.h>
 #include <pvz2native/surface.h>
 
@@ -47,15 +48,15 @@ void run_game_app_initialize(pvz2_elf_image_t *img, GuestRuntime *rt) {
      * instead of failing, which is precisely the bug this list exists to prevent.
      * A version table entry without a list is a mistake in that entry. */
     if (arg_classes == nullptr || arg_count == 0) {
-        std::printf("pvz2: [engine] %s has no game_app_init_args -- refusing to call "
-                    "Native_GameAppInitialize with a guessed signature\n",
-                    sym().version);
+        pvz2_log("[engine] %s has no game_app_init_args -- refusing to call "
+                 "Native_GameAppInitialize with a guessed signature",
+                 sym().version);
         return;
     }
     if (arg_count + 1 > rt_::memmap::kFakeObjMax) {
-        std::printf("pvz2: [engine] %s declares %u objects, more than the %u the memory map "
-                    "reserves -- raise kFakeObjMax in runtime/guest_memmap.h\n",
-                    sym().version, arg_count, rt_::memmap::kFakeObjMax);
+        pvz2_log("[engine] %s declares %u objects, more than the %u the memory map "
+                 "reserves -- raise kFakeObjMax in runtime/guest_memmap.h",
+                 sym().version, arg_count, rt_::memmap::kFakeObjMax);
         return;
     }
 
@@ -91,9 +92,9 @@ void run_game_app_initialize(pvz2_elf_image_t *img, GuestRuntime *rt) {
      * refusing to boot on a build that merely lacks one would be worse than the
      * silence it replaces. */
     if (rt_::last_call_stats().result == 0) {
-        std::printf("pvz2: [engine] Native_GameAppInitialize returned FALSE -- it abandoned its "
-                    "jmethodID cache part-way, so some Java calls the engine makes later will go "
-                    "through a zeroed id. Booting anyway; expect a failure far from here\n");
+        pvz2_log("[engine] Native_GameAppInitialize returned FALSE -- it abandoned its "
+                 "jmethodID cache part-way, so some Java calls the engine makes later will go "
+                 "through a zeroed id. Booting anyway; expect a failure far from here");
     }
 }
 
@@ -186,6 +187,10 @@ void run_surface_lifecycle(pvz2_elf_image_t *img, GuestRuntime *rt) {
     rt_::run_at_offset(img, rt, "Native_applicationDidBecomeActive",
                        sym().native.application_did_become_active, {0});
     diagnostics::dump_frame_gate(img, "after DidBecomeActive");
+    /* Stay offline through onSurfaceCreated: wifi there reopens the loading-screen
+     * hang (PvZ2Web / content waits). Promote after the menu path is live so
+     * LoD/map online gates can open against OBB-served CDN bodies. */
+    dex::net_mark_boot_finished();
 }
 
 }  // namespace engine

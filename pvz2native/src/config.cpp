@@ -31,12 +31,14 @@
 
 #include <pvz2native/config.h>
 #include <pvz2native/host_paths.h>
+#include <pvz2native/log.h>
 
 #include <cctype>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <random>
 #include <string>
 #include <vector>
@@ -146,6 +148,23 @@ const Setting kSettings[] = {
      "Route guest memory through the slow callback path (needed by watchpoints).", nullptr, "0"},
     {"runtime", "heap_quarantine", nullptr, Kind::kUInt, offsetof(pvz2_config_t, heap_quarantine), 0,
      "Hold the N most-recently-freed heap blocks out of the reuse pool (0 = off).", nullptr, "0"},
+    {"runtime", "force_date", nullptr, Kind::kString, offsetof(pvz2_config_t, force_date),
+     sizeof(g_config.force_date),
+     "Date and time the game believes it is, as \"YYYY-MM-DD HH:MM:SS\" (local time; time and\n"
+     "seconds optional). The clock starts there and then runs normally. Does not touch the system\n"
+     "clock. Leave unset for the real clock. Back up userdata/ first: dates are saved into the\n"
+     "profile.",
+     nullptr, "2026-10-17 10:00:00"},
+    {"runtime", "lod_legacy_hacks", nullptr, Kind::kBool, offsetof(pvz2_config_t, lod_legacy_hacks), 0,
+     "Daily pinata party. 0 (default) keeps the engine's own rules: once you win, the event leaves\n"
+     "the map until the next one starts. 1 re-enables older workarounds that keep a REPLAY banner\n"
+     "on the map after winning (they reset the \"completed level\" field and skip two engine\n"
+     "checks). Takes effect at the next launch.", nullptr, "0"},
+    {"runtime", "rewrite_cdn", nullptr, Kind::kBool, offsetof(pvz2_config_t, rewrite_cdn), 0,
+     "Re-copy OBB Packages into userdata/CDN.<tag> on every launch (overwrite).\n"
+     "0 = seed only when CDN.<tag> is missing / not yet .seeded (default).\n"
+     "1 = always refresh CDN files from the current OBB once per launch.",
+     nullptr, "0"},
 
     {"gl", "debug_clear", nullptr, Kind::kBool, offsetof(pvz2_config_t, gl_debug_clear), 0,
      "Force a loud clear colour instead of the engine's opaque black.", nullptr, "0"},
@@ -155,6 +174,10 @@ const Setting kSettings[] = {
      "Replace every fragment shader body with a constant colour (bisection tool).", nullptr, "0"},
     {"gl", "strict", nullptr, Kind::kBool, offsetof(pvz2_config_t, gl_strict), 0,
      "Query GL state on every suspicious call and report mismatches.", nullptr, "0"},
+    {"gl", "no_etc2", nullptr, Kind::kBool, offsetof(pvz2_config_t, gl_no_etc2), 0,
+     "Always decode ETC1 textures on the CPU. By default they go to the GPU as ETC2 (a\n"
+     "superset) when the driver supports it, which is faster to load and uses less memory.",
+     nullptr, "0"},
 
     {"video", "mode", nullptr, Kind::kLower, offsetof(pvz2_config_t, video_mode),
      sizeof(g_config.video_mode),
@@ -237,10 +260,11 @@ const Setting kSettings[] = {
      "so they survive a restart. Off makes every launch a clean first run.",
      nullptr, "1"},
     {"game", "network", nullptr, Kind::kNetwork, offsetof(pvz2_config_t, network_status), 0,
-     "What the game is told about network connectivity: none, mobile or wifi.\n"
-     "Leave it at none. The port has no network stack, and telling the engine it\n"
-     "is online makes the loading screen wait forever for downloads that can\n"
-     "never arrive. The store does NOT need this -- it is emulated locally.",
+     "Connectivity reported to the engine: none, mobile or wifi.\n"
+     "Leave at none: boot stays offline (avoids loading-screen waits), then the\n"
+     "hook promotes to wifi after DidBecomeActive so LoD/map online gates open\n"
+     "against Packages served from the OBB. Explicit mobile/wifi forces that\n"
+     "answer for the whole session. The store does not need this.",
      nullptr, "none"},
 
     {"gamepad", "enabled", nullptr, Kind::kBool, offsetof(pvz2_config_t, gamepad_enabled), 0,
@@ -1379,10 +1403,21 @@ bool ini_mentions_key(const std::vector<std::string> &lines, const char *section
 /* Inserts `; key = example` at the end of [section] when the key is absent even
  * as a comment. Does not uncomment or invent an active default. */
 bool insert_commented_ini_key(std::vector<std::string> &lines, const char *section, const char *key,
-                              const std::string &example) {
+                              const std::string &example, const char *comment = nullptr) {
     if (ini_mentions_key(lines, section, key)) return false;
     const std::string sect = std::string("[") + section + "]";
-    const std::string new_line = std::string("; ") + key + " = " + example + "\n";
+    std::string new_line;
+    if (comment != nullptr) {
+        std::string c = comment;
+        std::size_t p = 0;
+        while (p <= c.size()) {
+            std::size_t e = c.find('\n', p);
+            if (e == std::string::npos) e = c.size();
+            new_line += "; " + c.substr(p, e - p) + "\n";
+            p = e + 1;
+        }
+    }
+    new_line += std::string("; ") + key + " = " + example + "\n";
     bool in_section = false;
     std::size_t insert_at = std::string::npos;
     for (std::size_t i = 0; i < lines.size(); ++i) {
@@ -1459,6 +1494,19 @@ void heal_config_ini(const char *ini_path) {
     /* Optional [video] display stays commented (0 = primary) unless the player
      * uncomments it, same as logfile above. */
     if (insert_commented_ini_key(lines, "video", "display", "0")) dirty = true;
+
+    /* Optional [runtime] rewrite_cdn stays commented (0) unless the player
+     * uncomments it -- older installs never had the key. */
+    if (insert_commented_ini_key(lines, "runtime", "rewrite_cdn", "0")) dirty = true;
+
+    /* Optional switches added later: shown commented, with their comment, in files made before them. */
+    for (const Setting &s : kSettings) {
+        const bool added_later = (std::strcmp(s.section, "runtime") == 0 &&
+                                  (std::strcmp(s.key, "lod_legacy_hacks") == 0 || std::strcmp(s.key, "force_date") == 0)) ||
+                                 (std::strcmp(s.section, "gl") == 0 && std::strcmp(s.key, "no_etc2") == 0);
+        if (!added_later || s.seed != nullptr) continue;
+        if (insert_commented_ini_key(lines, s.section, s.key, example_for(s), s.comment)) dirty = true;
+    }
 
     for (const DefaultShortcut &d : kDefaultShortcuts) {
         char key[64];
@@ -1554,6 +1602,36 @@ extern "C" int pvz2_config_override(const char *name, const char *value) {
 }
 
 extern "C" const pvz2_config_t *pvz2_config(void) { return &g_config; }
+
+extern "C" long long pvz2_time_offset_sec(void) {
+    static const long long offset = [] {
+        const char *s = g_config.force_date;
+        if (s[0] == '\0') return 0LL;
+        int y = 0, mo = 0, d = 0, h = 0, mi = 0, sec = 0;
+        if (std::sscanf(s, "%d-%d-%d %d:%d:%d", &y, &mo, &d, &h, &mi, &sec) < 3 &&
+            std::sscanf(s, "%d-%d-%dT%d:%d:%d", &y, &mo, &d, &h, &mi, &sec) < 3) {
+            pvz2_log("[time] force_date '%s' ignored: expected YYYY-MM-DD HH:MM:SS", s);
+            return 0LL;
+        }
+        std::tm tmv{};
+        tmv.tm_year = y - 1900;
+        tmv.tm_mon = mo - 1;
+        tmv.tm_mday = d;
+        tmv.tm_hour = h;
+        tmv.tm_min = mi;
+        tmv.tm_sec = sec;
+        tmv.tm_isdst = -1;
+        const std::time_t forced = std::mktime(&tmv);
+        if (forced == (std::time_t)-1) {
+            pvz2_log("[time] force_date '%s' ignored: not a valid date", s);
+            return 0LL;
+        }
+        const long long off = (long long)forced - (long long)std::time(nullptr);
+        pvz2_log("[time] force_date=%s -> the game's clock is %+lld s from the host clock", s, off);
+        return off;
+    }();
+    return offset;
+}
 
 extern "C" int pvz2_config_update_bind_key(unsigned idx, const char *new_key) {
     if (!new_key || idx >= g_config.shortcut_count) return 0;

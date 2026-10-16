@@ -8,6 +8,7 @@
  */
 
 #include <pvz2native/audio/audio_output.h>
+#include <pvz2native/log.h>
 
 #include <SDL.h>
 
@@ -124,7 +125,7 @@ bool configure(int channels, int sample_rate_hz, int bits_per_sample) {
     close_device_locked(old);
 
     if (SDL_WasInit(SDL_INIT_AUDIO) == 0 && SDL_InitSubSystem(SDL_INIT_AUDIO) < 0) {
-        SDL_Log("pvz2 audio: SDL_InitSubSystem(AUDIO) failed: %s", SDL_GetError());
+        pvz2_log("[audio] SDL_InitSubSystem(AUDIO) failed: %s", SDL_GetError());
         return false;
     }
 
@@ -142,8 +143,8 @@ bool configure(int channels, int sample_rate_hz, int bits_per_sample) {
      * and letting SDL silently convert channels or width would misinterpret it. */
     SDL_AudioDeviceID dev = SDL_OpenAudioDevice(nullptr, 0, &want, &have, 0);
     if (dev == 0) {
-        SDL_Log("pvz2 audio: SDL_OpenAudioDevice(%d Hz, %d ch, %d bit) failed: %s",
-                sample_rate_hz, channels, bits_per_sample, SDL_GetError());
+        pvz2_log("[audio] SDL_OpenAudioDevice(%d Hz, %d ch, %d bit) failed: %s",
+                 sample_rate_hz, channels, bits_per_sample, SDL_GetError());
         return false;
     }
 
@@ -155,8 +156,8 @@ bool configure(int channels, int sample_rate_hz, int bits_per_sample) {
         g_bits = bits_per_sample;
     }
     SDL_PauseAudioDevice(dev, g_playing ? 0 : 1);
-    SDL_Log("pvz2 audio: device open -- %d Hz, %d ch, %d bit", sample_rate_hz, channels,
-            bits_per_sample);
+    pvz2_log("[audio] device open -- %d Hz, %d ch, %d bit", sample_rate_hz, channels,
+             bits_per_sample);
     return true;
 }
 

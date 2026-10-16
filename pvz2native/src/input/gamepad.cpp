@@ -1,4 +1,5 @@
 #include "pvz2native/input/gamepad.h"
+#include <pvz2native/log.h>
 
 #include "pvz2native/config.h"
 #include "pvz2native/config_screen.h"
@@ -205,8 +206,8 @@ void GamepadModule::init(SDL_Window *window, int use_43) {
     rebuild_focus_points();
     rebuild_bind_map();
 
-    std::printf("[gamepad] init enabled=%d port=%d stick_speed=%.2f deadzone=%.2f "
-                "board_cells=%u binds=%u focus=%zu\n",
+    pvz2_log("[gamepad] init enabled=%d port=%d stick_speed=%.2f deadzone=%.2f "
+                "board_cells=%u binds=%u focus=%zu",
                 enabled_, port_, stick_speed_, stick_deadzone_,
                 pvz2_config()->board_count, pvz2_config()->gamepad_bind_count,
                 focus_points_.size());
@@ -234,7 +235,7 @@ void GamepadModule::init(SDL_Window *window, int use_43) {
     a_held_was_snap_ = false;
 
     if (!enabled_) {
-        std::printf("[gamepad] disabled in config ([gamepad] enabled = 0)\n");
+        pvz2_log("[gamepad] disabled in config ([gamepad] enabled = 0)");
         return;
     }
 
@@ -279,11 +280,11 @@ void GamepadModule::try_open_controller() {
     SDL_GameControllerEventState(SDL_ENABLE);
 
     const int n = SDL_NumJoysticks();
-    std::printf("[gamepad] devices=%d preferred_port=%d\n", n, port_);
+    pvz2_log("[gamepad] devices=%d preferred_port=%d", n, port_);
     for (int i = 0; i < n; ++i) {
         const char *name = SDL_JoystickNameForIndex(i);
         const int is_gc = SDL_IsGameController(i) ? 1 : 0;
-        std::printf("[gamepad]   [%d] \"%s\"%s\n", i, name ? name : "?",
+        pvz2_log("[gamepad]   [%d] \"%s\"%s", i, name ? name : "?",
                     is_gc ? " [GameController]" : " [joystick only]");
     }
 
@@ -298,7 +299,7 @@ void GamepadModule::try_open_controller() {
         }
         controller_ = c;
         const char *name = SDL_GameControllerName(c);
-        std::printf("[gamepad] using \"%s\" (device index %d)\n", name ? name : "?", index);
+        pvz2_log("[gamepad] using \"%s\" (device index %d)", name ? name : "?", index);
         return true;
     };
 
@@ -318,8 +319,8 @@ void GamepadModule::try_open_controller() {
         if (try_index(i)) return;
     }
 
-    std::printf("[gamepad] no usable GameController found "
-                "(wireless 360: try port=1..3, or check xpad/xboxdrv)\n");
+    pvz2_log("[gamepad] no usable GameController found "
+                "(wireless 360: try port=1..3, or check xpad/xboxdrv)");
 }
 
 MenuId GamepadModule::classify_shortcut_menu(const char *name) const {
@@ -934,7 +935,7 @@ int GamepadModule::handle_event(const SDL_Event *e) {
         case SDL_CONTROLLERDEVICEREMOVED:
             if (controller_ && is_our_controller_instance(e->cdevice.which)) {
                 if (a_held_) on_button_a_release();
-                if (pvz2_config()->verbose) std::printf("[gamepad] disconnected (port %d)\n", port_);
+                if (pvz2_config()->verbose) pvz2_log("[gamepad] disconnected (port %d)", port_);
                 SDL_GameControllerClose(controller_);
                 controller_ = nullptr;
             }
