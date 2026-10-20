@@ -10,14 +10,17 @@
  *   config_screen_request_open() -- deferred open (no window pointer)
  *   config_screen_request_quit_confirm() -- show quit dialog (ESC / Exit Program);
  *                                          if already showing, dismisses it
+ *   config_screen_request_escape() -- Escape key / controller Back: nothing open -> settings (plays exit_click);
+ *                                    settings open -> quit dialog; quit dialog open -> dismiss it;
+ *                                    achievements -> close them
  *   config_screen_is_open()      -- non-zero while settings OR quit confirm is visible
  *   config_screen_handle_event() -- forward SDL events while open
  *   config_screen_draw()         -- render the overlay (call after game draw, before SDL_GL_SwapWindow)
  *
  * On settings close: if any setting changed, config.ini is rewritten. Most
  * options apply live (FPS, resolution, currency, IAP, binds). A process
- * relaunch only happens when the game locale changes, because the engine's
- * string tables are loaded at boot.
+ * relaunch only happens when the game locale, free purchases or an Events
+ * switch changes, because the engine reads those at boot.
  *
  * Window close (SDL_QUIT / title-bar X) bypasses the quit dialog and exits
  * immediately from main.c.
@@ -41,6 +44,9 @@ void config_screen_request_open(void);
  * (so a second Escape cancels). Safe to call with no window pointer; resources
  * load on the next draw. */
 void config_screen_request_quit_confirm(void);
+
+/* Escape key handling (see the lifecycle notes above). */
+void config_screen_request_escape(void);
 
 /* Tell the overlay that the game session has finished booting. Releases any
  * temporary UI audio device opened during the splash so the game's OpenSL→SDL

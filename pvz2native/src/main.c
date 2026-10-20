@@ -25,6 +25,7 @@
 #include <pvz2native/host_paths.h>
 #include <pvz2native/input/gamepad.h>
 #include <pvz2native/log.h>
+#include <pvz2native/save_dates.h>
 
 /* Set once the window exists, so input mapping can use logical window coords. */
 static SDL_Window *g_window = NULL;
@@ -1536,14 +1537,14 @@ static void host_pump(void) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         /* Title-bar X / Alt+F4 always exits immediately, even mid-boot or
-         * while the quit-confirm dialog is up. Escape toggles that dialog. */
+         * while the quit-confirm dialog is up. Escape opens settings, then the quit dialog. */
         if (event.type == SDL_QUIT) {
             handle_quit();
             continue;
         }
         if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE &&
             event.key.repeat == 0) {
-            config_screen_request_quit_confirm();
+            config_screen_request_escape();
             continue;
         }
         /* The boot runs for seconds inside a single guest call, so events
@@ -1821,6 +1822,7 @@ int main(int argc, char **argv) {
         SDL_Quit();
         return 1;
     }
+    pvz2_fix_future_save_dates();
 
     /* PvZ2's .so only imports gl* symbols, never egl* -- on real Android the
      * Java-side GLSurfaceView owns EGL context creation and the native side
@@ -1848,7 +1850,7 @@ int main(int argc, char **argv) {
                                            SDL_WINDOWPOS_CENTERED_DISPLAY(launch_display),
                                            SDL_WINDOWPOS_CENTERED_DISPLAY(launch_display),
                                            launch_w, launch_h,
-                                           SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+                                           SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN);
     if (!window) {
         pvz2_log("[sdl] SDL_CreateWindow failed: %s", SDL_GetError());
         pvz2_host_pre_sdl_quit();
@@ -1960,7 +1962,7 @@ int main(int argc, char **argv) {
         while (running) {
             SDL_Event event;
             while (SDL_PollEvent(&event)) {
-                /* Title-bar X always exits; Escape toggles quit-confirm.
+                /* Title-bar X always exits; Escape opens settings, then quit-confirm.
                  * Both must be handled even while the overlay is open. */
                 if (event.type == SDL_QUIT) {
                     handle_quit();
@@ -1968,11 +1970,7 @@ int main(int argc, char **argv) {
                 }
                 if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE &&
                     event.key.repeat == 0) {
-                    if (achievements_screen_is_open()) {
-                        achievements_screen_request_close();
-                    } else {
-                        config_screen_request_quit_confirm();
-                    }
+                    config_screen_request_escape();
                     continue;
                 }
                 /* Window events (resize, focus loss, etc.) must always be

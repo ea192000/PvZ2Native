@@ -155,6 +155,11 @@ const Setting kSettings[] = {
      "clock. Leave unset for the real clock. Back up userdata/ first: dates are saved into the\n"
      "profile.",
      nullptr, "2026-10-17 10:00:00"},
+    {"runtime", "no_fix_save_dates", nullptr, Kind::kBool, offsetof(pvz2_config_t, no_fix_save_dates), 0,
+     "Saves made by older builds can hold quest-pick times in the future (around 2030), which stops\n"
+     "daily and epic quests from appearing. By default, at launch, any such time more than 30 days\n"
+     "ahead is reset to yesterday. 1 = leave the save alone. Not applied while force_date is set.",
+     nullptr, "0"},
     {"runtime", "lod_legacy_hacks", nullptr, Kind::kBool, offsetof(pvz2_config_t, lod_legacy_hacks), 0,
      "Daily pinata party. 0 (default) keeps the engine's own rules: once you win, the event leaves\n"
      "the map until the next one starts. 1 re-enables older workarounds that keep a REPLAY banner\n"
@@ -165,6 +170,11 @@ const Setting kSettings[] = {
      "0 = seed only when CDN.<tag> is missing / not yet .seeded (default).\n"
      "1 = always refresh CDN files from the current OBB once per launch.",
      nullptr, "0"},
+    {"runtime", "use_cdn", nullptr, Kind::kBool, offsetof(pvz2_config_t, use_cdn), 0,
+     "Events and daily content read from the (emulated) CDN, like the live game did.\n"
+     "1 = on (default). 0 = off: the game gets no CDN answers and uses only what is inside the OBB,\n"
+     "so server-driven events do not appear. Takes effect at the next launch.",
+     nullptr, "1"},
 
     {"gl", "debug_clear", nullptr, Kind::kBool, offsetof(pvz2_config_t, gl_debug_clear), 0,
      "Force a loud clear colour instead of the engine's opaque black.", nullptr, "0"},
@@ -181,8 +191,8 @@ const Setting kSettings[] = {
 
     {"video", "mode", nullptr, Kind::kLower, offsetof(pvz2_config_t, video_mode),
      sizeof(g_config.video_mode),
-     "Launch resolution. The window is always resizable and the engine re-fits\n"
-     "on resize, so this is only the STARTING size.\n"
+     "Window size. The window cannot be resized with the mouse (that would stretch the\n"
+     "picture); change it here or from the settings screen.\n"
      "  mode = auto   -> match the display's aspect at a moderate base height\n"
      "                   (light on the GPU; 4:3/16:10/16:9 each get right shape)\n"
      "  mode = native -> match the display's full resolution (sharpest, heaviest)\n"
@@ -1502,7 +1512,9 @@ void heal_config_ini(const char *ini_path) {
     /* Optional switches added later: shown commented, with their comment, in files made before them. */
     for (const Setting &s : kSettings) {
         const bool added_later = (std::strcmp(s.section, "runtime") == 0 &&
-                                  (std::strcmp(s.key, "lod_legacy_hacks") == 0 || std::strcmp(s.key, "force_date") == 0)) ||
+                                  (std::strcmp(s.key, "lod_legacy_hacks") == 0 || std::strcmp(s.key, "force_date") == 0 ||
+                                   std::strcmp(s.key, "no_fix_save_dates") == 0 ||
+                                   std::strcmp(s.key, "use_cdn") == 0)) ||
                                  (std::strcmp(s.section, "gl") == 0 && std::strcmp(s.key, "no_etc2") == 0);
         if (!added_later || s.seed != nullptr) continue;
         if (insert_commented_ini_key(lines, s.section, s.key, example_for(s), s.comment)) dirty = true;
@@ -1548,11 +1560,22 @@ void heal_config_ini(const char *ini_path) {
     std::fclose(f);
 }
 
+/* Folder the relative paths of config.ini are resolved against; kept so a --paths.* override
+ * given on the command line is resolved the same way instead of against the current directory. */
+std::string g_base_dir;
+
+void resolve_override_paths() {
+    finish_path(g_config.so_path, sizeof(g_config.so_path), g_base_dir.c_str(), g_base_dir + kDefaultSoName);
+    finish_path(g_config.obb_path, sizeof(g_config.obb_path), g_base_dir.c_str(), g_base_dir + kDefaultObbName);
+}
+
 }  // namespace
 
 extern "C" void pvz2_config_load(const char *ini_path, const char *base_dir) {
+    g_base_dir = base_with_sep(base_dir);
     g_config = pvz2_config_t{}; /* reset to all-zero before (re)reading */
     g_config.emulate_iap = 0;
+    g_config.use_cdn = 1;
     g_config.achievement_notifications = 1;
     g_config.persist_saves = 1;
     g_config.gamepad_enabled = 1;
@@ -1598,7 +1621,9 @@ extern "C" void pvz2_config_load(const char *ini_path, const char *base_dir) {
 
 extern "C" int pvz2_config_override(const char *name, const char *value) {
     if (name == nullptr || value == nullptr) return 0;
-    return apply_override_name(name, value) ? 1 : 0;
+    if (!apply_override_name(name, value)) return 0;
+    resolve_override_paths();
+    return 1;
 }
 
 extern "C" const pvz2_config_t *pvz2_config(void) { return &g_config; }
@@ -2042,10 +2067,12 @@ extern "C" int pvz2_config_apply_overlay_settings(int fullscreen, int width, int
                                                   const char *currency_symbol,
                                                   const char *currency_code,
                                                   int emulate_iap,
-                                                  int achievement_notifications) {
+                                                  int achievement_notifications,
+                                                  int use_cdn, int rewrite_cdn) {
     const int locale_changed =
         (locale && locale[0] && std::strcmp(locale, g_config.user_locale) != 0) ? 1 : 0;
     const int iap_changed = ((emulate_iap ? 1 : 0) != g_config.emulate_iap) ? 1 : 0;
+    const int cdn_changed = ((use_cdn ? 1 : 0) != g_config.use_cdn) || ((rewrite_cdn ? 1 : 0) != g_config.rewrite_cdn);
 
     g_config.video_fullscreen = fullscreen ? 1 : 0;
     g_config.video_width = width;
@@ -2053,6 +2080,8 @@ extern "C" int pvz2_config_apply_overlay_settings(int fullscreen, int width, int
     g_config.fps_limit = fps_limit;
     g_config.emulate_iap = emulate_iap ? 1 : 0;
     g_config.achievement_notifications = achievement_notifications ? 1 : 0;
+    g_config.use_cdn = use_cdn ? 1 : 0;
+    g_config.rewrite_cdn = rewrite_cdn ? 1 : 0;
 
     if (locale && locale[0])
         std::snprintf(g_config.user_locale, sizeof(g_config.user_locale), "%s", locale);
@@ -2064,6 +2093,7 @@ extern "C" int pvz2_config_apply_overlay_settings(int fullscreen, int width, int
                       currency_code);
 
     /* Locale: string tables load at boot. IAP: purchase driver / store path is
-     * fixed for the session once the guest has asked. Both need a relaunch. */
-    return (locale_changed || iap_changed) ? 1 : 0;
+     * fixed for the session once the guest has asked. CDN: the engine reads its
+     * event files once at boot. All need a relaunch. */
+    return (locale_changed || iap_changed || cdn_changed) ? 1 : 0;
 }

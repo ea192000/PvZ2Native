@@ -21,8 +21,8 @@
  * Start() replays Response -> Data -> Complete from userdata/CDN.<maj.min>/
  * (version from [game] product_version_string). If that folder is missing it
  * is seeded once from the OBB Packages subgroup, then always read from disk
- * so later launches skip the heavy OBB inflate. Set [runtime] rewrite_cdn=1
- * to force a one-shot overwrite from the OBB each launch. Ads / draper /
+ * so later launches skip the heavy OBB inflate. [runtime] use_cdn=0 turns it off.
+ * Set [runtime] rewrite_cdn=1 to force a one-shot overwrite from the OBB each launch. Ads / draper /
  * anything without a match still fail.
  */
 
@@ -566,7 +566,13 @@ void start(DexCall &d) {
 
     const bool is_get =
         tx.method.empty() || tx.method == "GET" || tx.method == "get";
-    if (is_get && !tx.url.empty()) {
+    if (pvz2_config()->use_cdn == 0) {
+        static bool announced = false;
+        if (!announced) {
+            announced = true;
+            d.c.log("[http] use_cdn=0 -- CDN requests are not served; the game uses the OBB data only");
+        }
+    } else if (is_get && !tx.url.empty()) {
         std::string src;
         std::vector<std::uint8_t> body;
         if (resolve_cdn_body(d.c.rt, tx.url, src, body)) {

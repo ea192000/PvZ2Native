@@ -868,7 +868,7 @@ int GamepadModule::handle_controller_button(const SDL_Event *e) {
     const bool down = e->type == SDL_CONTROLLERBUTTONDOWN;
     const SDL_GameControllerButton button = static_cast<SDL_GameControllerButton>(e->cbutton.button);
 
-    /* Overlay UI: cursor + A hold-click + Back/Escape toggle only. */
+    /* Overlay UI: cursor + A hold-click + Back (same as Escape) only. */
     if (overlay_open()) {
         if (button == SDL_CONTROLLER_BUTTON_A) {
             if (down) on_button_a_press();
@@ -877,7 +877,7 @@ int GamepadModule::handle_controller_button(const SDL_Event *e) {
         }
         if (!down) return 1;
         if (button == SDL_CONTROLLER_BUTTON_BACK) {
-            config_screen_request_quit_confirm();
+            config_screen_request_escape();
             return 1;
         }
         return 1;
@@ -903,7 +903,7 @@ int GamepadModule::handle_controller_button(const SDL_Event *e) {
 
     switch (button) {
         case SDL_CONTROLLER_BUTTON_BACK:
-            config_screen_request_quit_confirm();
+            config_screen_request_escape();
             return 1;
         case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:
             goto_menu(MenuId::Top);

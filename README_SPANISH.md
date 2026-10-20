@@ -21,10 +21,13 @@ Enfocado en *Plants vs. Zombies 2: It's About Time* **v4.5.2** en Windows y Linu
 - En Windows, metadatos de versión del ejecutable mejorados.
 
 ### Ajustes dentro del juego
-- Se abren desde el menú principal con el botón de **Google Play** (esquina inferior derecha).
-- Idioma, moneda, pantalla completa, monitor/pantalla, límite de FPS, compras gratuitas, atajos de teclado y opciones de mando, sin editar archivos a mano.
-- La mayoría de cambios se aplican al momento (incluido mover la ventana a otro monitor). Cambiar el idioma relanza el proceso para recargar las tablas de texto.
+- Se abren con `Esc` o desde el menú principal con el botón de **Google Play** (esquina inferior derecha).
+- Idioma, moneda, pantalla completa, monitor/pantalla, límite de FPS, compras gratuitas, eventos, atajos de teclado y opciones de mando, sin editar archivos a mano.
+- La mayoría de cambios se aplican al momento (incluido mover la ventana a otro monitor). Cambiar el idioma, las compras gratuitas o las opciones de Eventos relanza el proceso para que el motor las recargue.
 - Un `config.ini` viejo o incompleto se corrige al arrancar: faltantes con valores seguros; valores inválidos se sanean.
+
+### Eventos
+- Ajustes → **Eventos**: **Activar eventos** (`[runtime] use_cdn`) enciende o apaga el CDN emulado que alimenta los eventos y el contenido diario; **Forzar eventos locales** (`[runtime] rewrite_cdn`) vuelve a copiar los archivos de eventos del OBB en cada arranque. Cualquiera de los dos cambios relanza el juego.
 
 ### Logros
 - Logros locales que se desbloquean al jugar; el progreso se guarda en `prefs.dat`.
@@ -33,7 +36,7 @@ Enfocado en *Plants vs. Zombies 2: It's About Time* **v4.5.2** en Windows y Linu
 
 ### Confirmación al salir
 - Confirmar o cancelar antes de cerrar (ratón, teclado o mando).
-- `Esc` siempre abre este diálogo (fijo, no remapeable). `F11` siempre alterna pantalla completa.
+- `Esc` abre la pantalla de ajustes; un segundo `Esc` desde ajustes abre este diálogo (fijo, no remapeable). `F11` siempre alterna pantalla completa.
 
 ### Configuración
 - Detección automática en el primer arranque (idioma, moneda, etc.).
@@ -74,26 +77,26 @@ Es exactamente el enfoque de **Wine** — *"Wine Is Not an Emulator"* — llevad
 
 ```text
 ┌──────────────────────────────────────────────┐
-│   libPVZ2.so  (ELF ARM32, EABI5, sin tocar)   │   ← el juego real de Android
+│  libPVZ2.so  (ELF ARM32, EABI5, sin tocar)   │   ← el juego real de Android
 └───────────────────────┬──────────────────────┘
                         │  instrucciones ARM
                         ▼
 ┌──────────────────────────────────────────────┐
-│   dynarmic  —  JIT ARM32 → x86_64             │   ← ÚNICO componente emulado
-└───────────────────────┬──────────────────────┘      (solo la CPU)
+│  dynarmic  —  JIT ARM32 → x86_64             │   ← ÚNICO componente emulado
+└───────────────────────┬──────────────────────┘     (solo la CPU)
                         │  llamadas a "Android"
                         ▼
 ┌──────────────────────────────────────────────┐
-│   Capa de compatibilidad (este proyecto)      │   ← reimplementación NATIVA,
-│                                               │      estilo Wine (nada emulado)
-│   JNI / JavaVM falso   ·   libc / libm / libz │
-│   OpenGL ES → OpenGL   ·   OpenSL ES → SDL    │
-│   GuestHeap propio     ·   VFS (rutas + .obb) │
+│  Capa de compatibilidad (este proyecto)      │   ← reimplementación NATIVA,
+│                                              │     estilo Wine (nada emulado)
+│  JNI / JavaVM falso   ·   libc / libm / libz │
+│  OpenGL ES → OpenGL   ·   OpenSL ES → SDL    │
+│  GuestHeap propio     ·   VFS (rutas + .obb) │
 └───────────────────────┬──────────────────────┘
                         │
                         ▼
 ┌──────────────────────────────────────────────┐
-│   Windows / Linux x64  ·  SDL2  ·  OpenGL 2.0 │
+│  Windows / Linux x64  ·  SDL2  ·  OpenGL 2.0 │
 └──────────────────────────────────────────────┘
 ```
 
@@ -253,6 +256,7 @@ Fuente única de verdad para rutas y depuración (las antiguas variables `PVZ2_*
 | `[video]` | `fullscreen`, `display`, `width`, `height`, `fps_limit` | Pantalla / índice de monitor (también en la UI de ajustes). |
 | `[game]` | `user_locale`, `currency_*`, `emulate_iap` | Idioma, monedas, IAP gratis (también en la UI). |
 | `[game]` | `achievement_notifications` | Toast + SFX al desbloquear (`1` por defecto; `0` solo silencia la UI). |
+| `[runtime]` | `use_cdn`, `rewrite_cdn` | CDN emulado activado/desactivado (por defecto activado) y re-copia forzada desde el OBB (también en la UI → Eventos). |
 | `[shortcuts]` | `bind_*` | Tecla → toque en pantalla (también en la UI). |
 | `[board]` / `[gamepad]` / `[gamepad_binds]` | … | Rejilla y binds del mando (también en la UI). |
 
@@ -265,14 +269,14 @@ Fuente única de verdad para rutas y depuración (las antiguas variables `PVZ2_*
 | Tocar / seleccionar | Clic izquierdo (o **A** del mando) |
 | Arrastrar (deslizar) | Clic izquierdo + mover (o stick derecho) |
 | Desplazar listas | Rueda del ratón |
-| Atrás (menús) | Clic derecho / `Backspace` / Back del mando (en juego: confirmación de salida) |
-| Confirmar salida | `Esc` (fijo) |
+| Atrás (menús) | Clic derecho / `Backspace` / Back del mando (igual que Esc: abre configuración, luego la confirmación de salida) |
+| Ajustes → confirmar salida | `Esc` (fijo): la primera pulsación abre ajustes, la segunda la confirmación de salida |
 | Pantalla completa | `F11` (fijo) |
 | Ajustes | Botón Google Play del menú principal |
 | Lista de logros | Desde ajustes (**Ver logros**) |
 | Atajos / mando | Configurables en ajustes |
 
-La ventana es redimensionable: la escena se renderiza a resolución fija y el compositor la escala, remapeando la entrada al espacio del juego.
+La ventana no se puede redimensionar con el ratón (deformaría la imagen); elige el tamaño en ajustes o en `config.ini`, o usa `F11` para pantalla completa.
 
 ---
 

@@ -194,6 +194,9 @@ struct Strings {
 	const char *quit_btn;     /* "QUIT" */
 	const char *cancel_btn;   /* "CANCEL" */
 	const char *display_config; /* "Display" row label / picker screen title */
+	const char *events_config;  /* "Events" row label / panel title */
+	const char *events_enable;  /* checkbox: read events from the (emulated) CDN */
+	const char *events_force_local; /* checkbox: re-copy the OBB event files at every launch */
 };
 
 static const Strings kStringsEN = {
@@ -215,7 +218,8 @@ static const Strings kStringsEN = {
 	"Are you sure you wish to",
 	"quit the game?",
 	"QUIT", "CANCEL",
-	"Display"
+	"Display",
+	"Events", "Enable Events", "Force Local Events"
 };
 static const Strings kStringsES = {
 	"Configuración",
@@ -236,7 +240,8 @@ static const Strings kStringsES = {
 	"¿Seguro que deseas",
 	"salir del juego?",
 	"SALIR", "CANCELAR",
-	"Pantalla"
+	"Pantalla",
+	"Eventos", "Activar eventos", "Forzar eventos locales"
 };
 static const Strings kStringsFR = {
 	"Configuration",
@@ -257,7 +262,8 @@ static const Strings kStringsFR = {
 	"Voulez-vous vraiment",
 	"quitter le jeu ?",
 	"QUITTER", "ANNULER",
-	"Écran"
+	"Écran",
+	"Événements", "Activer les événements", "Forcer les événements locaux"
 };
 static const Strings kStringsDE = {
 	"Konfiguration",
@@ -278,7 +284,8 @@ static const Strings kStringsDE = {
 	"Möchten Sie das Spiel",
 	"wirklich beenden?",
 	"BEENDEN", "ABBRECHEN",
-	"Bildschirm"
+	"Bildschirm",
+	"Events", "Events aktivieren", "Lokale Events erzwingen"
 };
 static const Strings kStringsPT = {
 	"Configurações",
@@ -299,7 +306,8 @@ static const Strings kStringsPT = {
 	"Tem certeza de que deseja",
 	"sair do jogo?",
 	"SAIR", "CANCELAR",
-	"Tela"
+	"Tela",
+	"Eventos", "Ativar eventos", "Forçar eventos locais"
 };
 static const Strings kStringsIT = {
 	"Configurazione",
@@ -320,7 +328,8 @@ static const Strings kStringsIT = {
 	"Sei sicuro di voler",
 	"uscire dal gioco?",
 	"ESCI", "ANNULLA",
-	"Schermo"
+	"Schermo",
+	"Eventi", "Attiva eventi", "Forza eventi locali"
 };
 
 static const Strings *get_strings(const char *locale) {
@@ -1283,6 +1292,8 @@ struct EditConfig {
 	char cur_code[8]    = "USD";
 	int  emulate_iap  = 0;
 	int  achievement_notifications = 1;
+	int  use_cdn      = 1;
+	int  rewrite_cdn  = 0;
 
 	void load_from_live() {
 		const pvz2_config_t *c = pvz2_config();
@@ -1296,6 +1307,8 @@ struct EditConfig {
 		SDL_strlcpy(cur_code,   c->currency_code,    sizeof(cur_code));
 		emulate_iap  = c->emulate_iap;
 		achievement_notifications = c->achievement_notifications;
+		use_cdn      = c->use_cdn;
+		rewrite_cdn  = c->rewrite_cdn;
 	}
 
 	bool differs_from_live() const {
@@ -1309,7 +1322,9 @@ struct EditConfig {
 			   strcmp(cur_symbol, c->currency_symbol)  != 0 ||
 			   strcmp(cur_code,   c->currency_code)    != 0 ||
 			   emulate_iap != c->emulate_iap ||
-			   achievement_notifications != c->achievement_notifications;
+			   achievement_notifications != c->achievement_notifications ||
+			   use_cdn != c->use_cdn ||
+			   rewrite_cdn != c->rewrite_cdn;
 	}
 };
 
@@ -1317,7 +1332,7 @@ struct EditConfig {
  * Menu navigation
  * ========================================================================= */
 enum class Screen { Main, Resolution, Fps, Language, Currency, Bindings, BindEdit,
-                    GamepadBinds, GamepadBindPick, GamepadDevicePick, DisplayPick };
+                    GamepadBinds, GamepadBindPick, GamepadDevicePick, DisplayPick, Events };
 
 /* =========================================================================
  * Global state
@@ -1524,7 +1539,7 @@ Uint32  g_trans_start_ms = 0;
 float   g_trans_t        = 1.0f;   /* normalised [0,1], 1 = complete */
 
 /* Saved scroll position per screen – restored when navigating back */
-static const int kNumScreens = 11; /* must match Screen enum count */
+static const int kNumScreens = 12; /* must match Screen enum count */
 float   g_saved_scroll[kNumScreens] = {};
 
 /* Remappable pad buttons shown in Gamepad Configuration (Start/A/Back/L-R fixed). */
@@ -1739,6 +1754,7 @@ static std::vector<Item> build_items(Screen screen, const Strings *str) {
 
         items.push_back({str->input_config, true, false, false, ""});
         items.push_back({str->gamepad_config, true, false, false, ""});
+        items.push_back({str->events_config, true, false, false, ""});
         items.push_back({str->view_achievements, true, false, false, ""});
         items.push_back({str->achievement_notify, false, false,
                          g_edit.achievement_notifications != 0, ""});
@@ -1834,6 +1850,9 @@ static std::vector<Item> build_items(Screen screen, const Strings *str) {
             const bool sel = cfg->gamepad_enabled != 0 && cfg->gamepad_port == p.index;
             items.push_back({p.name, false, false, sel, ""});
         }
+    } else if (screen == Screen::Events) {
+        items.push_back({str->events_enable, false, false, g_edit.use_cdn != 0, ""});
+        items.push_back({str->events_force_local, false, false, g_edit.rewrite_cdn != 0, ""});
     } else if (screen == Screen::DisplayPick) {
         const int effective = g_edit.video_display;
         std::vector<DetectedDisplay> displays = list_detected_displays();
@@ -1904,7 +1923,7 @@ static void load_resources(float win_w, float win_h) {
 }
 
 /* -------------------------------------------------------------------------
- * Config persistence + live apply (relaunch when locale or emulate_iap changes)
+ * Config persistence + live apply (relaunch when locale, emulate_iap or CDN switches change)
  * ---------------------------------------------------------------------- */
 static void write_overlay_settings_to_ini(void) {
 	char *base = pvz2_host_data_path();
@@ -2001,6 +2020,10 @@ static void write_overlay_settings_to_ini(void) {
 	set_key("game", "emulate_iap", tmp);
 	SDL_snprintf(tmp, sizeof(tmp), "%d", g_edit.achievement_notifications);
 	set_key("game", "achievement_notifications", tmp);
+	SDL_snprintf(tmp, sizeof(tmp), "%d", g_edit.use_cdn);
+	set_key("runtime", "use_cdn", tmp);
+	SDL_snprintf(tmp, sizeof(tmp), "%d", g_edit.rewrite_cdn);
+	set_key("runtime", "rewrite_cdn", tmp);
 
 	FILE *f = fopen(ini_path, "wb");
 	if (f) {
@@ -2035,7 +2058,7 @@ static void relaunch_process(void) {
 }
 
 /* Persist to config.ini always. Hot-apply when possible; relaunch if the game
- * locale or emulate_iap changed (both need a fresh session). */
+ * locale, emulate_iap or the CDN switches changed (all need a fresh session). */
 static void apply_settings_and_close(void) {
 	const pvz2_config_t *live = pvz2_config();
 	const bool video_changed =
@@ -2058,7 +2081,9 @@ static void apply_settings_and_close(void) {
 		g_edit.cur_symbol,
 		g_edit.cur_code,
 		g_edit.emulate_iap,
-		g_edit.achievement_notifications);
+		g_edit.achievement_notifications,
+		g_edit.use_cdn,
+		g_edit.rewrite_cdn);
 
 	if (needs_relaunch) {
 		relaunch_process();
@@ -2396,6 +2421,7 @@ static void draw_panel_content(Screen screen, float dx,
     else if (screen == Screen::GamepadBinds) title = str->gamepad_config;
     else if (screen == Screen::GamepadDevicePick) title = str->gamepad_selected;
     else if (screen == Screen::DisplayPick) title = str->display_config;
+    else if (screen == Screen::Events)     title = str->events_config;
 
     /* BindEdit: use the bind's display name as the title */
     static char s_bind_edit_title[128];
@@ -2633,7 +2659,7 @@ static void draw_panel_content(Screen screen, float dx,
                 icon_margin = sc(kSliderFromRight, s);
             } else if (items[i].is_arrow) {
                 icon_w = sc((float)g_tex_arrow_up.w, s);
-                if (screen == Screen::Main && (int)i == 10 && g_tex_exit_up.id)
+                if (screen == Screen::Main && (int)i == 11 && g_tex_exit_up.id)
                     icon_w = sc((float)g_tex_exit_up.w, s);
             } else if (items[i].is_edit) {
                 icon_w = sc((float)g_tex_edit_up.w, s);
@@ -2667,7 +2693,7 @@ static void draw_panel_content(Screen screen, float dx,
         if (items[i].is_slider) {
             draw_item_slider(item_x, iy, item_w, item_h, s, items[i].slider_t);
         } else if (items[i].is_arrow) {
-            bool is_exit_row = (screen == Screen::Main && (int)i == 10 && g_tex_exit_up.id && g_tex_exit_down.id);
+            bool is_exit_row = (screen == Screen::Main && (int)i == 11 && g_tex_exit_up.id && g_tex_exit_down.id);
             Tex &at = is_exit_row
                 ? (((int)i == g_arrow_pressed_idx) ? g_tex_exit_down : g_tex_exit_up)
                 : (((int)i == g_arrow_pressed_idx) ? g_tex_arrow_down : g_tex_arrow_up);
@@ -2903,7 +2929,7 @@ static void handle_event(const SDL_Event *e) {
 	std::vector<RItem> ritems;
 	if (g_screen == Screen::Main) {
 		/* 0=display 1=res 2=fps 3=lang 4=currency 5=input 6=gamepad
-		 * 7=achievements 8=achievement_notify 9=iap 10=exit */
+		 * 7=events 8=achievements 9=achievement_notify 10=iap 11=exit */
 		ritems.push_back({true, false,false,false,-1,0,0,0,0,nullptr,nullptr,nullptr});
 		ritems.push_back({true, false,false,false,-1,0,0,0,0,nullptr,nullptr,nullptr});
 		ritems.push_back({true, false,false,false,-1,0,0,0,0,nullptr,nullptr,nullptr});
@@ -2911,6 +2937,7 @@ static void handle_event(const SDL_Event *e) {
 		ritems.push_back({true, false,false,false,-1,0,0,0,0,nullptr,nullptr,nullptr});
 		ritems.push_back({true, false,false,false,-1,0,0,0,0,nullptr,nullptr,nullptr});
 		ritems.push_back({true, false,false,false,-1,0,0,0,0,nullptr,nullptr,nullptr});
+		ritems.push_back({true, false,false,false,-1,0,0,0,0,nullptr,nullptr,nullptr}); /* events */
 		ritems.push_back({true, false,false,false,-1,0,0,0,0,nullptr,nullptr,nullptr}); /* achievements */
 		ritems.push_back({false,false,false,g_edit.achievement_notifications!=0,-1,0,0,0,0,nullptr,nullptr,nullptr});
 		ritems.push_back({false,false,false,g_edit.emulate_iap!=0,-1,0,0,0,0,nullptr,nullptr,nullptr});
@@ -2946,6 +2973,9 @@ static void handle_event(const SDL_Event *e) {
 		const std::vector<DetectedPad> pads = list_detected_gamepads();
 		for (size_t i = 0; i < pads.size(); ++i)
 			ritems.push_back({false,false,false,false,-1,0,0,0,0,nullptr,nullptr,nullptr});
+	} else if (g_screen == Screen::Events) {
+		ritems.push_back({false,false,false,g_edit.use_cdn!=0,-1,0,0,0,0,nullptr,nullptr,nullptr});
+		ritems.push_back({false,false,false,g_edit.rewrite_cdn!=0,-1,0,0,0,0,nullptr,nullptr,nullptr});
 	} else if (g_screen == Screen::DisplayPick) {
 		const std::vector<DetectedDisplay> displays = list_detected_displays();
 		const size_t n = displays.empty() ? 1 : displays.size();
@@ -3241,10 +3271,10 @@ static void handle_event(const SDL_Event *e) {
 
 			if (ritems[i].is_arrow) {
 				if (g_screen == Screen::Main) {
-					if (i == 10) {
+					if (i == 11) {
 						/* Exit: no menu click SFX — dialog open plays exit_click. */
 						show_quit_confirm();
-					} else if (i == 7) {
+					} else if (i == 8) {
 						/* View Achievements — open SFX is exit_click (same as quit). */
 						achievements_screen_request_open();
 					} else {
@@ -3257,6 +3287,7 @@ static void handle_event(const SDL_Event *e) {
 						else if (i == 4) to = Screen::Currency;
 						else if (i == 5) to = Screen::Bindings;
 						else if (i == 6) to = Screen::GamepadBinds;
+						else if (i == 7) to = Screen::Events;
 						if (to != Screen::Main) begin_transition(to, true);
 					}
 				} else if (g_screen == Screen::GamepadBinds) {
@@ -3289,7 +3320,7 @@ static void handle_event(const SDL_Event *e) {
 			} else {
 				play_sound(g_snd_check);
 				if (g_screen == Screen::Main) {
-					if (i == 8) {
+					if (i == 9) {
 						g_edit.achievement_notifications = !g_edit.achievement_notifications;
 						write_overlay_settings_to_ini();
 						/* Apply live immediately — no relaunch needed. Keep other
@@ -3304,11 +3335,16 @@ static void handle_event(const SDL_Event *e) {
 							live->currency_symbol,
 							live->currency_code,
 							live->emulate_iap,
-							g_edit.achievement_notifications);
-					} else if (i == 9) {
+							g_edit.achievement_notifications,
+							live->use_cdn, live->rewrite_cdn);
+					} else if (i == 10) {
 						g_edit.emulate_iap = !g_edit.emulate_iap;
 						write_overlay_settings_to_ini();
 					}
+				} else if (g_screen == Screen::Events) {
+					if (i == 0) g_edit.use_cdn = !g_edit.use_cdn;
+					else if (i == 1) g_edit.rewrite_cdn = !g_edit.rewrite_cdn;
+					write_overlay_settings_to_ini();
 				} else if (g_screen == Screen::Resolution) {
 					const std::vector<ResOpt> ropts = filtered_res_opts(
 						g_edit.fullscreen, g_edit.video_width, g_edit.video_height);
@@ -3434,6 +3470,26 @@ void config_screen_request_quit_confirm(void) {
 		return;
 	}
 	show_quit_confirm();
+}
+
+void config_screen_request_escape(void) {
+	if (achievements_screen_is_open()) {
+		achievements_screen_request_close();
+		return;
+	}
+	if (g_quit_confirm) {
+		dismiss_quit_confirm();
+		return;
+	}
+	if (g_open || g_open_requested) {
+		show_quit_confirm();
+		return;
+	}
+	/* Opened from Esc / controller Back: same cue as the quit dialog. The icon
+	 * click (config_screen_request_open) has its own click sound, so it stays silent here. */
+	refresh_ui_sfx_from_prefs();
+	play_sound(g_snd_exit);
+	g_open_requested = true;
 }
 
 void config_screen_notify_booted(void) {

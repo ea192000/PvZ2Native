@@ -68,6 +68,8 @@ typedef struct pvz2_config {
     /* 1 = re-copy OBB Packages into userdata/CDN.<tag> every launch (overwrite).
      * 0 = seed only when the CDN folder is missing / not yet .seeded. */
     int rewrite_cdn;
+    int no_fix_save_dates;  /* 1 = do not reset future-dated quest-pick times in the save at launch */
+    int use_cdn;            /* [runtime] use_cdn: 0 = do not serve the emulated CDN (default 1) */
     char force_date[32];    /* [runtime] force_date: "YYYY-MM-DD [HH:MM[:SS]]" local time the game sees; empty = real clock */
     int lod_legacy_hacks;   /* 1 = old daily-pinata workarounds (progress/uid-order patches + completed-field reset) */
 
@@ -271,7 +273,8 @@ int pvz2_config_update_gamepad_stick_param(int which, float value, int persist);
 void pvz2_reload_shortcuts(void);
 
 /* Writes the settings-overlay fields into the in-memory config. Does not touch
- * disk. Returns 1 if a restart is required (locale or emulate_iap changed),
+ * disk. Returns 1 if a restart is required (locale, emulate_iap, use_cdn or
+ * rewrite_cdn changed),
  * 0 if everything else can be applied live. achievement_notifications is always
  * applied live (no relaunch). */
 int pvz2_config_apply_overlay_settings(int fullscreen, int width, int height,
@@ -279,7 +282,8 @@ int pvz2_config_apply_overlay_settings(int fullscreen, int width, int height,
                                        const char *currency_symbol,
                                        const char *currency_code,
                                        int emulate_iap,
-                                       int achievement_notifications);
+                                       int achievement_notifications,
+                                       int use_cdn, int rewrite_cdn);
 
 /* Applies fullscreen / window size on the live SDL window and notifies the
  * guest of the new drawable size. Defined in main.c. */

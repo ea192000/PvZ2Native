@@ -21,10 +21,13 @@ Aimed at *Plants vs. Zombies 2: It's About Time* **v4.5.2** on Windows and Linux
 - On Windows, improved executable version metadata.
 
 ### In-game settings
-- Open from the main menu via the **Google Play** button (bottom-right).
-- Change language, currency, fullscreen, monitor/display, FPS limit, free purchases, keyboard shortcuts, and controller options without editing files by hand.
-- Most changes apply immediately (including moving the window to another monitor). Changing language relaunches the process so string tables reload correctly.
+- Open with `Esc` or from the main menu via the **Google Play** button (bottom-right).
+- Change language, currency, fullscreen, monitor/display, FPS limit, free purchases, events, keyboard shortcuts, and controller options without editing files by hand.
+- Most changes apply immediately (including moving the window to another monitor). Changing language, free purchases or the Events options relaunches the process so the engine reloads them.
 - Older or incomplete `config.ini` files are healed on launch: missing keys get safe defaults; invalid values are corrected.
+
+### Events
+- Settings → **Events**: **Enable events** (`[runtime] use_cdn`) turns the emulated CDN that feeds events and daily content on or off; **Force local events** (`[runtime] rewrite_cdn`) re-copies the event files from the OBB at every launch. Either change relaunches the game.
 
 ### Achievements
 - Local achievements unlocked while playing; progress is saved in `prefs.dat`.
@@ -33,7 +36,7 @@ Aimed at *Plants vs. Zombies 2: It's About Time* **v4.5.2** on Windows and Linux
 
 ### Exit confirmation
 - Confirm or cancel before quitting (mouse, keyboard, or controller).
-- `Esc` always opens this dialog (fixed, not remappable). `F11` always toggles fullscreen.
+- `Esc` opens the settings screen; pressing `Esc` again from settings opens this dialog (fixed, not remappable). `F11` always toggles fullscreen.
 
 ### Configuration
 - First-run auto-detection for language, currency, and related values.
@@ -74,26 +77,26 @@ This is exactly **Wine's** approach — *"Wine Is Not an Emulator"* — taken on
 
 ```text
 ┌──────────────────────────────────────────────┐
-│   libPVZ2.so  (ELF ARM32, EABI5, untouched)   │   ← the real Android game
+│  libPVZ2.so  (ELF ARM32, EABI5, untouched)   │   ← the real Android game
 └───────────────────────┬──────────────────────┘
                         │  ARM instructions
                         ▼
 ┌──────────────────────────────────────────────┐
-│   dynarmic  —  JIT ARM32 → x86_64             │   ← ONLY emulated component
-└───────────────────────┬──────────────────────┘      (the CPU only)
+│  dynarmic  —  JIT ARM32 → x86_64             │   ← ONLY emulated component
+└───────────────────────┬──────────────────────┘     (the CPU only)
                         │  "Android" calls
                         ▼
 ┌──────────────────────────────────────────────┐
-│   Compatibility layer (this project)          │   ← NATIVE reimplementation,
-│                                               │      Wine-style (nothing emulated)
-│   Fake JNI / JavaVM    ·   libc / libm / libz │
-│   OpenGL ES → OpenGL   ·   OpenSL ES → SDL    │
-│   Own GuestHeap        ·   VFS (paths + .obb) │
+│  Compatibility layer (this project)          │   ← NATIVE reimplementation,
+│                                              │     Wine-style (nothing emulated)
+│  Fake JNI / JavaVM   ·   libc / libm / libz  │
+│  OpenGL ES → OpenGL  ·   OpenSL ES → SDL     │
+│  Own GuestHeap       ·   VFS (paths + .obb)  │
 └───────────────────────┬──────────────────────┘
                         │
                         ▼
 ┌──────────────────────────────────────────────┐
-│   Windows / Linux x64  ·  SDL2  ·  OpenGL 2.0 │
+│  Windows / Linux x64  ·  SDL2  ·  OpenGL 2.0 │
 └──────────────────────────────────────────────┘
 ```
 
@@ -253,6 +256,7 @@ Single source of truth for paths and debugging (legacy `PVZ2_*` environment vari
 | `[video]` | `fullscreen`, `display`, `width`, `height`, `fps_limit` | Display / monitor index (also in settings UI). |
 | `[game]` | `user_locale`, `currency_*`, `emulate_iap` | Locale, store cosmetics, free IAP (also in settings UI). |
 | `[game]` | `achievement_notifications` | Unlock toast + SFX (`1` default; `0` silences UI only). |
+| `[runtime]` | `use_cdn`, `rewrite_cdn` | Emulated CDN on/off (default on) and forced re-seed from the OBB (also in settings UI → Events). |
 | `[shortcuts]` | `bind_*` | Keyboard → on-screen tap (also in settings UI). |
 | `[board]` / `[gamepad]` / `[gamepad_binds]` | … | Controller focus grid and binds (also in settings UI). |
 
@@ -265,14 +269,14 @@ Single source of truth for paths and debugging (legacy `PVZ2_*` environment vari
 | Tap / select | Left click (or controller **A**) |
 | Drag (swipe) | Left click + move (or right stick) |
 | Scroll lists | Mouse wheel |
-| Back (menus) | Right click / `Backspace` / controller Back (quit confirm in-game) |
-| Quit confirm | `Esc` (fixed) |
+| Back (menus) | Right click / `Backspace` / controller Back (works like Esc: opens settings, then quit confirm) |
+| Settings → quit confirm | `Esc` (fixed): first press opens settings, second opens quit confirm |
 | Toggle fullscreen | `F11` (fixed) |
 | Settings | Google Play button on the main menu |
 | Achievements list | From settings (**View achievements**) |
 | Shortcuts / pad | Configurable in settings |
 
-The window is resizable: the scene renders at a fixed resolution and the compositor scales it, remapping input into the game's space.
+The window cannot be resized with the mouse (that would stretch the picture); pick the size in settings or `config.ini`, or use `F11` for fullscreen.
 
 ---
 
