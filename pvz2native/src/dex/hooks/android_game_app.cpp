@@ -10,6 +10,7 @@
 #include <pvz2native/dependencies/vfs.h>
 #include <pvz2native/dex/config_store.h>
 #include <pvz2native/dex/dex.h>
+#include <pvz2native/diagnostics/verbose.h>
 #include <pvz2native/input/input_queue.h>
 
 #include <SDL.h>
@@ -93,6 +94,28 @@ void log_records(DexCall &d, const std::vector<std::uint8_t> &r) {
     }
 }
 
+/* Same walk as log_records, but only to learn whether a touch started or ended
+ * in this batch -- that feeds the [state] input counters in diagnostics/verbose. */
+void scan_touches(const std::vector<std::uint8_t> &r, bool &had_down, bool &had_up) {
+    std::size_t off = 0;
+    while (off + 4 <= r.size()) {
+        const std::uint32_t type = rd32(r, off);
+        if (type == 0) {
+            const std::uint32_t phase = rd32(r, off + 36);
+            if (phase == 0) had_down = true;
+            if (phase == 3) had_up = true;
+            off += 48;
+        } else if (type == 1) {
+            off += 32;
+        } else if (type == 6) {
+            const std::uint32_t n = rd32(r, off + 8);
+            off += 12 + n + ((4 - n % 4) % 4);
+        } else {
+            break;
+        }
+    }
+}
+
 /* boolean UI_ProcessEvents(ByteBuffer OutData)
  *
  * The real mUIEventManager.ProcessEvents writes the number of pending input
@@ -131,18 +154,23 @@ void ui_process_events(DexCall &d) {
     for (std::size_t i = 0; i < records.size(); ++i) {
         d.c.write8(buf + kEventRecordsOffset + (std::uint32_t)i, records[i]);
     }
-    /* All of this is [log] input=1 only. It used to print the "delivered" line
+    /* All of this is [log] input=1 (or verbose=1) only. It used to print the "delivered" line
      * unconditionally, which spammed a normal (input=0) run with a line per
      * frame that had any event. The per-record breakdown was already gated;
      * now the summary line is too. */
-    if (count != 0 && pvz2_config()->input) {
-        d.c.log("[input] delivered %u event(s), %u bytes", (unsigned)count,
-                (unsigned)records.size());
+    if (count != 0 && diagnostics::input_trace()) {
+        d.c.log("[input] f=%d delivered %u event(s), %u bytes", diagnostics::current_frame() + 1,
+                (unsigned)count, (unsigned)records.size());
         /* Spell out every record. Needed whenever input "does nothing" -- it
          * separates "the host never sent it" from "the engine was handed it and
          * ignored it", which no amount of staring at the engine's handlers can
          * distinguish. */
         log_records(d, records);
+    }
+    if (count != 0 && diagnostics::verbose()) {
+        bool had_down = false, had_up = false;
+        scan_touches(records, had_down, had_up);
+        diagnostics::note_input_delivered((unsigned)count, had_down, had_up);
     }
     d.ret_bool(count != 0);
 }

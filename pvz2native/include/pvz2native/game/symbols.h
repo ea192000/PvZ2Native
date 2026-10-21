@@ -205,6 +205,19 @@ struct GameSymbols {
         std::uint32_t lod_time_float_beq;
         std::uint32_t lod_uid_writer_fn;
 
+        /* Create / destroy of the 0x104-byte reward-screen singleton (vtable at
+         * .so+0x10C0A58) that the award, quest, prize and coin flows each spawn; see
+         * game_install_reward_screen_fix. Both are `PUSH {...,lr}` at the function entry. */
+        std::uint32_t scr_create;
+        std::uint32_t scr_destroy;
+        /* The global holding the live instance (.bss; 0 when none). Create overwrites
+         * it without looking, so a second create while one is alive orphans the first,
+         * and the first's own destroy call then finds 0 and does nothing. */
+        std::uint32_t scr_global;
+        /* Value of its vptr (an offset into the .so), used to check that a remembered
+         * instance is still a live object of that class before it is destroyed. */
+        std::uint32_t scr_vtable;
+
         /* The receipt verdict, which takes two instructions because the engine
          * only ever reaches a "purchase finished" state through its validation
          * server. Both are `MOV Rd, #imm` and 0 means not mapped.

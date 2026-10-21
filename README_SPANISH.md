@@ -252,7 +252,7 @@ Fuente única de verdad para rutas y depuración (las antiguas variables `PVZ2_*
 | `[paths]` | `so`, `obb` | Rutas al `.so` y al `.obb` (relativas al ejecutable o absolutas). |
 | `[paths]` | `save` | Carpeta de guardado opcional; sin valor, `prefs.dat` junto al exe. |
 | `[log]` | `console` | Mostrar consola/log (por defecto `0`). |
-| `[log]` | `verbose` / `trace` / `input` | Diagnóstico de boot / imports / entrada. |
+| `[log]` | `verbose` / `trace` / `input` | `verbose`: boot + línea de tiempo con número de frame (`[engine]`, `[java]`, `[screen]`, `[census]`, `[state]`) para cazar una UI muerta (implica `input`; necesita `console=1` o un `logfile`); `trace`: imports; `input`: eventos. |
 | `[video]` | `fullscreen`, `display`, `width`, `height`, `fps_limit` | Pantalla / índice de monitor (también en la UI de ajustes). |
 | `[game]` | `user_locale`, `currency_*`, `emulate_iap` | Idioma, monedas, IAP gratis (también en la UI). |
 | `[game]` | `achievement_notifications` | Toast + SFX al desbloquear (`1` por defecto; `0` solo silencia la UI). |

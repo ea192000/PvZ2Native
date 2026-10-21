@@ -27,6 +27,7 @@
 #include <pvz2native/dependencies/dependency.h>
 #include <pvz2native/dex/dex.h>
 #include <pvz2native/diagnostics/diagnostics.h>
+#include <pvz2native/diagnostics/verbose.h>
 #include <pvz2native/engine/engine.h>
 #include <pvz2native/game/patches.h>
 #include <pvz2native/game/symbols.h>
@@ -142,6 +143,7 @@ extern "C" pvz2_session_t *pvz2_session_start(const char *so_path) {
     /* Needs the session image (make_guest_callback). Before any guest code so
      * the SVC at sub_3487AC is visible to the first JIT translation. */
     pvz2native::game_install_lod_apply_probe(&s->img);
+    pvz2native::game_install_reward_screen_fix(&s->img);
 
     /* Load-time bring-up, then the registered-native lifecycle, in the exact
      * order the real Android runtime uses -- see engine/. */
@@ -203,6 +205,7 @@ extern "C" int pvz2_session_frame(pvz2_session_t *s) {
 
     engine::draw_frame(&s->img, &s->rt, s->frames_run);
     ++s->frames_run;
+    diag::after_frame(&s->img, &s->rt, s->frames_run);
 
     /* The lifecycle only ENQUEUES applicationDidBecomeActive; the handler that
      * consults the gate bytes runs inside the first PumpMessageQueue. So the
@@ -231,7 +234,7 @@ extern "C" int pvz2_session_frame(pvz2_session_t *s) {
      * ticking, the engine is alive and the event reached it but did not act.
      * Those two have completely different fixes, and nothing else in the log
      * tells them apart. */
-    if (pvz2_config()->input && s->frames_run % 600 == 0) {
+    if (diag::input_trace() && s->frames_run % 600 == 0) {
         /* What that frame COST, not just that it happened. A heartbeat alone
          * cannot tell "the engine is running and drawing nothing" from "the
          * engine bails out at the top of onDrawFrame" -- both tick forever over

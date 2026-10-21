@@ -15,6 +15,7 @@
  */
 
 #include <pvz2native/dex/dex.h>
+#include <pvz2native/diagnostics/verbose.h>
 #include <pvz2native/log.h>
 
 #include <algorithm>
@@ -168,6 +169,187 @@ const char *unhooked_answer(char ret_kind) {
 
 /* --------------------------------------------------------- CallXxxMethod */
 
+/* [log] verbose: one timeline line per Java call the engine makes.
+ *
+ * Throttled per method, because the engine polls a few of them every frame and a
+ * line per frame would bury everything else: the first calls are always shown,
+ * after that at most one line per second per method, saying how many were left
+ * out. UI_ProcessEvents is skipped outright -- the [input] lines already
+ * cover it, and it is called every frame.
+ *
+ * Arguments are RAW: the va_list is read three words deep without a signature, so
+ * a word may be a pointer, an int, half a long, or leftover memory when the
+ * method takes fewer. Anything that points at printable text is shown as that
+ * text, which is what makes URLs and event names readable. */
+struct JavaTraceRow {
+    std::uint64_t calls = 0;
+    std::uint64_t suppressed = 0;
+    std::chrono::steady_clock::time_point last_logged{};
+};
+std::mutex g_java_trace_lock;
+std::map<std::pair<std::string, std::string>, JavaTraceRow> g_java_trace;
+
+std::string describe_word(GuestCall &c, std::uint32_t w) {
+    char buf[24];
+    if (w >= 0x1000 && c.in_bounds(w, 4)) {
+        std::string text;
+        for (std::uint32_t i = 0; i < 96 && c.in_bounds(w + i, 1); ++i) {
+            const std::uint8_t ch = c.read8(w + i);
+            if (ch == 0) {
+                if (text.size() >= 2) return "\"" + text + "\"";
+                break;
+            }
+            if (ch < 0x20 || ch > 0x7e) {
+                text.clear();
+                break;
+            }
+            text.push_back((char)ch);
+            if (i == 95) return "\"" + text + "...\"";
+        }
+    }
+    std::snprintf(buf, sizeof(buf), "0x%x", w);
+    return buf;
+}
+
+/* The engine narrates its own state machine through Crashlytics.setXxx(key, value):
+ * "Board State", "WorldMap Shown", "GameStateMgr State", "Narration State",
+ * "GameStateTransitionController TransitionState", "Resgroup Preload Refcounts"...
+ * These are the closest thing to a debugger on the engine's screens and modals, and
+ * the port otherwise throws them away. They are set every frame, so only a CHANGE of
+ * a key's value is logged; the per-frame timers (FrameStart_*) are dropped. */
+/* Guessed call chain of the engine code that made this JNI call, as .so offsets.
+ *
+ * The engine is stripped and has no RTTI, so a breadcrumb text is the only name
+ * we get for a function -- but the addresses of the functions that were running
+ * are enough to disassemble them offline (capstone / objdump -b binary). Walks the
+ * guest stack and keeps every word that points into the code right after a BL/BLX,
+ * i.e. a plausible return address. Heuristic: it can include stale entries. */
+std::string guess_callers(GuestCall &c) {
+    pvz2_elf_image_t *img = c.rt->img;
+    if (img == nullptr) return "";
+    const std::uint32_t lo = img->so_base + img->text_vaddr, hi = lo + img->text_size;
+    std::string out;
+    int found = 0;
+    const std::uint32_t sp = c.regs[13];
+    for (std::uint32_t a = sp; a < sp + 4096 && found < 10; a += 4) {
+        if (!c.in_bounds(a, 4)) break;
+        const std::uint32_t w = c.read32(a);
+        if (w < lo + 4 || w >= hi || (w & 1) || !c.in_bounds(w - 4, 4)) continue;
+        const std::uint32_t prev = c.read32(w - 4);
+        if ((prev & 0x0F000000) != 0x0B000000 && (prev & 0x0FFFFFF0) != 0x012FFF30) continue;
+        char buf[24];
+        std::snprintf(buf, sizeof(buf), " 0x%x", w - img->so_base);
+        out += buf;
+        ++found;
+    }
+    return out;
+}
+
+bool trace_crashlytics(const DexCall &call, const std::string &class_name,
+                       const std::string &method_name) {
+    if (class_name != "com/crashlytics/android/Crashlytics") return false;
+
+    /* Breadcrumb text from the engine's own decision points ("GameStateMgr::
+     * handleEndOfLevel - Showing world map because ..."). Rare, so every one is
+     * logged in full, with where in the engine it came from. */
+    if (method_name == "log") {
+        diagnostics::vlog("engine-log", "%s  [callers:%s]", call.string_arg(0).c_str(),
+                          guess_callers(call.c).c_str());
+        return true;
+    }
+    if (method_name.compare(0, 3, "set") != 0) return false;
+
+    const std::string key = call.string_arg(0);
+    if (key.compare(0, 11, "FrameStart_") == 0) return true;
+
+    char value[1100];
+    if (method_name == "setString") {
+        std::snprintf(value, sizeof(value), "%s", call.string_arg(1).c_str());
+    } else if (method_name == "setBool") {
+        std::snprintf(value, sizeof(value), "%s", (call.arg(1) & 0xff) ? "true" : "false");
+    } else if (method_name == "setInt" || method_name == "setLong") {
+        std::snprintf(value, sizeof(value), "%d", (int)call.arg(1));
+    } else if (method_name == "setFloat" || method_name == "setDouble") {
+        const std::uint64_t bits = ((std::uint64_t)call.arg(2) << 32) | call.arg(1);
+        double d;
+        std::memcpy(&d, &bits, sizeof(d));
+        std::snprintf(value, sizeof(value), "%g", d);
+    } else {
+        return false;
+    }
+
+    static std::mutex lock;
+    static std::map<std::string, std::string> last;
+    {
+        std::lock_guard<std::mutex> lk(lock);
+        auto it = last.find(key);
+        if (it != last.end() && it->second == value) return true;
+        last[key] = value;
+    }
+    diagnostics::vlog("engine", "%s = %s", key.c_str(), value);
+    /* The moments worth a census: a map that just became usable, a narration that
+     * just ended, a level just won. */
+    if ((key == "WorldMap State" && std::strcmp(value, "WM_Ready") == 0) ||
+        (key == "Narration State" && std::strcmp(value, "CNM_Finished") == 0) ||
+        (key == "Board State" && (std::strcmp(value, "PlayerWonOutro") == 0 ||
+                                  std::strcmp(value, "EndLevel") == 0))) {
+        const std::string why = key + " = " + value;
+        diagnostics::request_census(why.c_str());
+    }
+    return true;
+}
+
+void trace_java_call(GuestCall &c, const DexCall &call, const std::string &class_name,
+                     const std::string &method_name, bool hooked) {
+    if (method_name == "UI_ProcessEvents") return;
+    if (trace_crashlytics(call, class_name, method_name)) return;
+
+    constexpr std::uint64_t kAlwaysShow = 12;
+    constexpr auto kMinGap = std::chrono::seconds(1);
+    const auto now = std::chrono::steady_clock::now();
+    std::uint64_t skipped = 0;
+    {
+        std::lock_guard<std::mutex> lk(g_java_trace_lock);
+        JavaTraceRow &row = g_java_trace[std::make_pair(class_name, method_name)];
+        ++row.calls;
+        if (row.calls > kAlwaysShow && now - row.last_logged < kMinGap) {
+            ++row.suppressed;
+            return;
+        }
+        skipped = row.suppressed;
+        row.suppressed = 0;
+        row.last_logged = now;
+    }
+
+    std::string args;
+    if (call.va != 0) {
+        for (int i = 0; i < 3; ++i) {
+            if (i) args += ", ";
+            args += describe_word(c, c.read32(call.va + (std::uint32_t)i * 4));
+        }
+    } else {
+        args = "n/a";
+    }
+    const std::string short_class = class_name.substr(class_name.rfind('/') + 1);
+    diagnostics::vlog("java", "%s.%s(%s) %s%s", short_class.c_str(), method_name.c_str(),
+                      args.c_str(), hooked ? "" : "UNHOOKED ",
+                      skipped ? ("(+" + std::to_string(skipped) + " calls not shown)").c_str() : "");
+}
+
+std::mutex g_board_level_lock;
+std::string g_board_level;
+
+/* Remembers Crashlytics.setString("Board Level", ...) -- the one breadcrumb the port
+ * acts on, so it is kept even when verbose is off. */
+void track_board_level(const DexCall &call, const std::string &class_name,
+                       const std::string &method_name) {
+    if (method_name != "setString" || class_name != "com/crashlytics/android/Crashlytics") return;
+    if (call.string_arg(0) != "Board Level") return;
+    const std::string level = call.string_arg(1);
+    std::lock_guard<std::mutex> lk(g_board_level_lock);
+    g_board_level = level;
+}
+
 /* Resolves the (class, method) the engine is invoking and runs its hook. */
 void dispatch_call(GuestCall &c, char ret_kind, std::uint32_t va) {
     std::uint32_t method_id = c.regs[2];
@@ -181,6 +363,8 @@ void dispatch_call(GuestCall &c, char ret_kind, std::uint32_t va) {
     if (c.rt->lookup_method(method_id, class_name, method_name)) {
         MethodHook hook = hook_table().find(class_name, method_name);
         census_record(class_name, method_name, ret_kind, hook != nullptr);
+        track_board_level(call, class_name, method_name);
+        if (diagnostics::verbose()) trace_java_call(c, call, class_name, method_name, hook != nullptr);
         if (hook) {
             hook(call);
         } else if (ret_kind == 'o') {
@@ -447,6 +631,11 @@ void handle_javavm(GuestCall &c, std::uint32_t slot) {
 }  // namespace
 
 /* ------------------------------------------------------------- interface */
+
+std::string current_board_level() {
+    std::lock_guard<std::mutex> lk(g_board_level_lock);
+    return g_board_level;
+}
 
 std::uint32_t jni_slot_count() { return kSlotCount; }
 

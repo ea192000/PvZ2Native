@@ -19,6 +19,7 @@
 #include <pvz2native/dependencies/dependency.h>
 #include <pvz2native/log.h>
 #include <pvz2native/config.h>
+#include <pvz2native/diagnostics/verbose.h>
 #include <pvz2native/gfx/gl_requirements.h>
 #include <pvz2native/surface.h>
 
@@ -440,6 +441,7 @@ void log_gl_step(GuestCall &c, const char *what, int a, int b) {
 }
 
 void gl_glDrawArrays(GuestCall &c) {
+    pvz2native::diagnostics::note_gl_draw();
     /* Everything below is diagnostics from the black-screen hunt: glGet* calls and glGetError
      * on every draw, each one a driver sync point (very costly on virtual GPUs). Only paid
      * when [gl] strict is on. */
@@ -536,6 +538,7 @@ void gl_glDrawArrays(GuestCall &c) {
 }
 
 void gl_glDrawElements(GuestCall &c) {
+    pvz2native::diagnostics::note_gl_draw();
     glDrawElements(c.arg(0), c.arg(1), c.arg(2), c.ptr(c.arg(3)));
     if (gl_strict_enabled()) report_gl_error(c, "glDrawElements");
 }

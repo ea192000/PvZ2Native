@@ -29,6 +29,11 @@ void GuestHeap::report_exhausted(uint32_t want, uint32_t align) {
     std::fflush(stdout);
 }
 
+void GuestHeap::for_each_live(const std::function<void(uint32_t, uint32_t)> &fn) {
+    std::lock_guard<std::mutex> lk(lock_);
+    for (const auto &kv : allocated_) fn(kv.first, kv.second);
+}
+
 void GuestHeap::usage(uint64_t &in_use, uint64_t &peak, uint64_t &total) {
     std::lock_guard<std::mutex> lk(lock_);
     in_use = in_use_;

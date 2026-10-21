@@ -53,7 +53,7 @@ typedef struct pvz2_gamepad_bind {
  * runtime shims that read these flags are C++. Both include this one header. */
 typedef struct pvz2_config {
     /* [log] -- what the harness prints. */
-    int verbose;        /* blow-by-blow boot log: per .init_array entry, per lifecycle call */
+    int verbose;        /* boot banners + frame-stamped [java]/[engine]/[state] timeline; implies input logging */
     int trace;          /* per-import-call trace (~57MB/run, very loud) */
     int pc_sample;      /* [pc-sample]/[HOT] instruction sampling + hot-frame slicing */
     int input;          /* per-event touch/key logging + a frame heartbeat */

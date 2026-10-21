@@ -172,6 +172,11 @@ private:
  * the finding -- it means the stall is entirely inside guest code. */
 void report_call_census();
 
+/* The level the engine last announced through Crashlytics "Board Level" (e.g.
+ * "goldbloom10"), or empty. Tracked whether or not verbose is on: the end-of-level
+ * epic fix in game/patches.cpp needs it. */
+std::string current_board_level();
+
 /* One registrar per Java class, each in its own file under src/dex/hooks/. */
 void register_android_game_app(HookTable &t);
 void register_android_surface_view(HookTable &t);

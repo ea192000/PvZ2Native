@@ -46,6 +46,18 @@ void game_apply_patches(pvz2_elf_image_t *img);
  * and return so we can see where the apply chain dies before UID write. */
 void game_install_lod_apply_probe(pvz2_elf_image_t *img);
 
+/* Makes the engine's reward-screen singleton behave as a stack, which fixes the
+ * game ignoring every click after the last mission of an epic quest.
+ *
+ * Its create function (sub_4A396C) stores the new object in a global without checking
+ * it, and its destroy function (sub_4A3A00) destroys whatever the global holds. The epic
+ * finale opens two such screens at once, so the first is orphaned: it stays registered
+ * as a widget and swallows every click. The probes remember an instance about to be
+ * overwritten and hand it back to a destroy that finds the global empty. Non-overlapping
+ * use is untouched. With [log] verbose=1 every create/destroy is logged as [screen].
+ * Same preconditions as game_install_lod_apply_probe. */
+void game_install_reward_screen_fix(pvz2_elf_image_t *img);
+
 }  // namespace pvz2native
 
 #endif

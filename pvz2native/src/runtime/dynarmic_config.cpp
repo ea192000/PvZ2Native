@@ -4,6 +4,7 @@
  */
 
 #include <pvz2native/runtime/dynarmic_config.h>
+#include <pvz2native/diagnostics/verbose.h>
 #include <pvz2native/log.h>
 
 #include <algorithm>
@@ -253,6 +254,7 @@ void Pvz2Env::begin_call() {
     import_calls = 0;
     jni_calls = 0;
     halted_by_guest_return = false;
+    quiet_call = false;
     exited_early = false;
     exit_retval = 0;
     should_halt = false;
@@ -492,7 +494,8 @@ void Pvz2Env::handle_import_call(std::uint32_t idx) {
 
 void Pvz2Env::CallSVC(std::uint32_t swi) {
     if (swi == 0) {
-        if (verbose_boot()) {
+        /* Boot only: after that every audio callback and nested call ends here too. */
+        if (verbose_boot() && !quiet_call && diagnostics::current_frame() == 0) {
             std::lock_guard<std::mutex> lg(rt->log_lock);
             pvz2_log("[jit] guest function returned to host (halt sentinel)");
         }
@@ -1144,7 +1147,9 @@ void run_guest_call(pvz2_elf_image_t *img, GuestRuntime *rt, const char *label,
                     std::uint32_t offset, std::uint32_t r0,
                     const std::vector<std::uint32_t> &extra_args, bool per_frame) {
     std::uint32_t entry_addr = img->so_base + offset;
-    const bool chatty = verbose_boot() || !per_frame;
+    /* verbose adds boot banners, not a banner per frame: that was 5 lines a frame
+     * and buried the [java]/[engine]/[state] timeline (18 MB in five minutes). */
+    const bool chatty = !per_frame;
     if (chatty) {
         pvz2_log("[runtime] ---- running %s at 0x%08x (offset 0x%x) ----", label, entry_addr,
                     offset);
@@ -1156,6 +1161,7 @@ void run_guest_call(pvz2_elf_image_t *img, GuestRuntime *rt, const char *label,
     }
 
     GuestThreadCtx &ctx = main_ctx(img, rt);
+    ctx.env.quiet_call = per_frame;
     GuestCallSetup setup;
     setup.r0 = r0;
     if (extra_args.size() > 0) setup.r1 = extra_args[0];
@@ -1215,6 +1221,7 @@ void run_at_offset(pvz2_elf_image_t *img, GuestRuntime *rt, const char *label,
 std::uint32_t call_guest_quiet_args(pvz2_elf_image_t *img, GuestRuntime *rt, std::uint32_t offset,
                                     const std::uint32_t *args, int nargs) {
     GuestThreadCtx &ctx = main_ctx(img, rt);
+    ctx.env.quiet_call = true;
     GuestCallSetup setup;
     if (nargs > 0) setup.r0 = args[0];
     if (nargs > 1) setup.r1 = args[1];

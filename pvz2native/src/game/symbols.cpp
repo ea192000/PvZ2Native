@@ -214,6 +214,10 @@ const GameSymbols kVersions[] = {
             .lod_match_uid_bls = 0x40f640,
             .lod_time_float_beq = 0x81e978,
             .lod_uid_writer_fn = 0x69f8dc,
+            .scr_create = 0x4a396c,
+            .scr_destroy = 0x4a3a00,
+            .scr_global = 0x1163ef0,
+            .scr_vtable = 0x10c0a58,
             /* The `MOV R1,#1` in sub_737DB8, whose only caller is
              * PurchaseBroker::OnPaymentComplete (sub_72EE30). R1=1 means "POST
              * this receipt to the validation server and wait for $.validation";

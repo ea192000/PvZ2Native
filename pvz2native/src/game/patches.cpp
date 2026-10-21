@@ -4,7 +4,9 @@
 
 #include <pvz2native/config.h>
 #include <pvz2native/dependencies/dependency.h>
+#include <pvz2native/dex/dex.h>
 #include <pvz2native/game/symbols.h>
+#include <pvz2native/diagnostics/verbose.h>
 #include <pvz2native/log.h>
 
 #include <atomic>
@@ -588,6 +590,93 @@ void game_install_lod_apply_probe(pvz2_elf_image_t *img) {
                    "match probe");
     install_svc_at(img, sym().patch.lod_uid_writer_fn, kLodWriterPush, "lod.uid.writer",
                    lod_uid_writer_enter, "UID-writer probe");
+}
+
+/* --- reward-screen singleton fix ------------------------------------------ *
+ *
+ * Each handler runs in place of ONE instruction (the PUSH at a function entry), so it
+ * has to do what that instruction did; install_svc_at checks it is that instruction. */
+namespace {
+
+constexpr std::uint32_t kScrCreatePush = 0xE92D48F0u;  /* PUSH {r4-r7,fp,lr} */
+constexpr std::uint32_t kScrDestroyPush = 0xE92D4070u; /* PUSH {r4,r5,r6,lr} */
+
+/* The reward-screen singleton (see GameSymbols::patch.scr_global).
+ *
+ * Its create function stores the new object in a global without
+ * checking it, and its destroy function destroys whatever the global holds. The epic
+ * finale opens two of these at once -- the journal's "continue / back to map" screen,
+ * then the quest-award screen a second later -- so the first is orphaned: the award
+ * screen's destroy clears the global, and when the journal screen later closes itself
+ * its destroy finds 0 and does nothing. The screen stays registered as a widget and
+ * swallows every click on the map afterwards.
+ *
+ * Nested screens are meant to behave like a stack, so that is what this makes them:
+ * create remembers the instance it is about to overwrite, and a destroy that finds the
+ * global empty takes the remembered one back out first. Plain, non-overlapping use
+ * (the only case that worked before) never touches the stack. */
+std::vector<std::uint32_t> g_scr_stack;
+
+void scr_push_frame(GuestCall &c, int nregs, const int *regs) {
+    const std::uint32_t sp = c.sp() - 4 * (nregs + 1);
+    for (int i = 0; i < nregs; ++i) c.write32(sp + 4 * i, c.regs[regs[i]]);
+    c.write32(sp + 4 * nregs, c.lr());
+    c.regs[13] = sp;
+}
+
+void scr_create(GuestCall &c) {
+    const std::uint32_t global = c.img->so_base + sym().patch.scr_global;
+    const std::uint32_t live = c.read32(global);
+    if (live != 0) {
+        g_scr_stack.push_back(live);
+        pvz2_log("[screen] a reward screen is created while 0x%08x is still alive (caller .so+0x%x, "
+                 "board '%s'): keeping it so its own destroy still finds it (%zu nested)", live,
+                 c.lr() - c.img->so_base, dex::current_board_level().c_str(), g_scr_stack.size());
+    }
+    pvz2native::diagnostics::vlog("screen", "CREATE  reward-screen singleton, caller .so+0x%x "
+                                  "(board='%s', live=0x%08x)", c.lr() - c.img->so_base,
+                                  dex::current_board_level().c_str(), live);
+    static const int kRegs[] = {4, 5, 6, 7, 11};
+    scr_push_frame(c, 5, kRegs);
+    c.no_return();
+}
+
+void scr_destroy(GuestCall &c) {
+    const std::uint32_t global = c.img->so_base + sym().patch.scr_global;
+    std::uint32_t live = c.read32(global);
+    if (live == 0) {
+        /* Only take back a remembered screen that is still what we think it is: a live
+         * heap block whose vptr is this class's. Anything else was freed or reused by the
+         * engine in the meantime and must not be touched. */
+        while (!g_scr_stack.empty()) {
+            const std::uint32_t cand = g_scr_stack.back();
+            g_scr_stack.pop_back();
+            if (c.rt->heap.size_of(cand) != 0 && c.read32(cand) == c.img->so_base + sym().patch.scr_vtable) {
+                live = cand;
+                c.write32(global, live);
+                pvz2_log("[screen] destroy found no screen (caller .so+0x%x): destroying the one "
+                         "that was orphaned, 0x%08x (%zu nested left)", c.lr() - c.img->so_base,
+                         live, g_scr_stack.size());
+                break;
+            }
+            pvz2_log("[screen] dropped remembered screen 0x%08x: no longer a live screen object",
+                     cand);
+        }
+    }
+    pvz2native::diagnostics::vlog("screen", "DESTROY reward-screen singleton, caller .so+0x%x "
+                                  "(live=0x%08x)", c.lr() - c.img->so_base, live);
+    static const int kRegs[] = {4, 5, 6};
+    scr_push_frame(c, 3, kRegs);
+    c.no_return();
+}
+
+}  // namespace
+
+void game_install_reward_screen_fix(pvz2_elf_image_t *img) {
+    if (img == nullptr) return;
+    const auto &p = sym().patch;
+    install_svc_at(img, p.scr_create, kScrCreatePush, "scr.create", scr_create, "screen create");
+    install_svc_at(img, p.scr_destroy, kScrDestroyPush, "scr.destroy", scr_destroy, "screen destroy");
 }
 
 }  // namespace pvz2native

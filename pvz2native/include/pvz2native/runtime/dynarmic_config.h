@@ -139,6 +139,7 @@ public:
     std::uint32_t import_calls = 0;
     std::uint32_t jni_calls = 0;
     bool halted_by_guest_return = false;
+    bool quiet_call = false; /* per-frame call: no halt-sentinel banner even under verbose */
     bool exited_early = false; /* set by pthread_exit */
     std::uint32_t exit_retval = 0;
 

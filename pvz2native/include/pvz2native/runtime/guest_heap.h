@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <string>
@@ -54,6 +55,10 @@ public:
      * the failure mode behind a game that runs fine for minutes and then hangs,
      * because operator new returning 0 aborts the guest (see report_exhausted). */
     void usage(uint64_t &in_use, uint64_t &peak, uint64_t &total);
+
+    /* Calls fn(addr, size) for every live block, with the heap lock held (fn must not
+     * allocate or free guest memory). For the object census in diagnostics/verbose. */
+    void for_each_live(const std::function<void(uint32_t, uint32_t)> &fn);
 
     /* Forensics for a suspected use-after-free address. Fills out_alloc/out_free
      * with the most-recent alloc/free record whose block covered `x` (seq==0

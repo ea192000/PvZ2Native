@@ -120,7 +120,13 @@ const Setting kSettings[] = {
      "save"},
 
     {"log", "verbose", nullptr, Kind::kBool, offsetof(pvz2_config_t, verbose), 0,
-     "Blow-by-blow boot log: one banner per .init_array entry and lifecycle call.", nullptr, "0"},
+     "Debug timeline (also implies input=1). Boot banners per .init_array entry and\n"
+     "lifecycle call, plus lines stamped with the frame number: [engine] the engine's\n"
+     "own state keys when they change, [java] every Java method it calls (throttled,\n"
+     "raw args), [screen] reward-screen create/destroy, [census] live objects by\n"
+     "vtable, and [state] fps/draw/input/heap every 5 s. Needs a place to print:\n"
+     "console=1 or a logfile. Use it to chase a dead UI.",
+     nullptr, "0"},
     {"log", "trace", nullptr, Kind::kBool, offsetof(pvz2_config_t, trace), 0,
      "Per-import-call trace. Extremely loud (~57 MB of stdout per run).", nullptr, "0"},
     {"log", "pc_sample", nullptr, Kind::kBool, offsetof(pvz2_config_t, pc_sample), 0,
