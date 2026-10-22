@@ -218,6 +218,12 @@ const GameSymbols kVersions[] = {
             .scr_destroy = 0x4a3a00,
             .scr_global = 0x1163ef0,
             .scr_vtable = 0x10c0a58,
+            .quest_pick_fn = 0x75834c,
+            .quest_slot_pick_fn = 0x758f04,
+            .quest_candidate_fn = 0x7599ec,
+            .quest_add_fn = 0x75975c,
+            .quest_shuffle_fn = 0x7598e8,
+            .rs_default_state = 0x11d2bc0,
             /* The `MOV R1,#1` in sub_737DB8, whose only caller is
              * PurchaseBroker::OnPaymentComplete (sub_72EE30). R1=1 means "POST
              * this receipt to the validation server and wait for $.validation";

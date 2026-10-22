@@ -7,6 +7,7 @@
  */
 
 #include <pvz2native/config.h>
+#include <pvz2native/host_files.h>
 #include <pvz2native/dependencies/vfs.h>
 #include <pvz2native/dex/config_store.h>
 #include <pvz2native/dex/dex.h>
@@ -382,32 +383,31 @@ void store_save_locked(ConfigStore &s) {
     if (!pvz2_config()->persist_saves) return;
     std::error_code ec;
     std::filesystem::create_directories(pvz2_config()->save_dir, ec);
-    /* Write to a temp file and rename over the target, so an interrupted write
-     * cannot leave a half-written prefs file that fails to load next launch. */
-    const std::string path = prefs_path();
-    const std::string tmp = path + ".tmp";
-    std::FILE *f = std::fopen(tmp.c_str(), "wb");
-    if (f == nullptr) return;
+    /* Serialise first, then replace the file in one step, so an interrupted write cannot leave a
+     * half-written prefs file that fails to load next launch. */
+    std::vector<std::uint8_t> out;
+    const auto put = [&out](const void *p, std::size_t n) {
+        const auto *b = static_cast<const std::uint8_t *>(p);
+        out.insert(out.end(), b, b + n);
+    };
     for (const auto &kv : s.strings) {
         const std::uint32_t klen = (std::uint32_t)kv.first.size();
         const std::uint32_t vlen = (std::uint32_t)kv.second.size();
-        std::fputc('S', f);
-        std::fwrite(&klen, sizeof(klen), 1, f);
-        std::fwrite(kv.first.data(), 1, klen, f);
-        std::fwrite(&vlen, sizeof(vlen), 1, f);
-        std::fwrite(kv.second.data(), 1, vlen, f);
+        out.push_back('S');
+        put(&klen, sizeof(klen));
+        put(kv.first.data(), klen);
+        put(&vlen, sizeof(vlen));
+        put(kv.second.data(), vlen);
     }
     for (const auto &kv : s.numbers) {
         const std::uint32_t klen = (std::uint32_t)kv.first.size();
         const std::int64_t val = kv.second;
-        std::fputc('N', f);
-        std::fwrite(&klen, sizeof(klen), 1, f);
-        std::fwrite(kv.first.data(), 1, klen, f);
-        std::fwrite(&val, sizeof(val), 1, f);
+        out.push_back('N');
+        put(&klen, sizeof(klen));
+        put(kv.first.data(), klen);
+        put(&val, sizeof(val));
     }
-    std::fclose(f);
-    std::filesystem::rename(tmp, path, ec);
-    if (ec) std::filesystem::remove(tmp, ec); /* rename failed; don't leave the temp behind */
+    host_files::write_atomic(prefs_path(), out);
 }
 
 ConfigStore &config_store() {

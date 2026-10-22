@@ -29,6 +29,7 @@
 #include <pvz2native/diagnostics/diagnostics.h>
 #include <pvz2native/diagnostics/verbose.h>
 #include <pvz2native/engine/engine.h>
+#include <pvz2native/quest_fix.h>
 #include <pvz2native/game/patches.h>
 #include <pvz2native/game/symbols.h>
 #include <pvz2native/pvz2_session.h>
@@ -144,9 +145,14 @@ extern "C" pvz2_session_t *pvz2_session_start(const char *so_path) {
      * the SVC at sub_3487AC is visible to the first JIT translation. */
     pvz2native::game_install_lod_apply_probe(&s->img);
     pvz2native::game_install_reward_screen_fix(&s->img);
+    pvz2native::game_install_quest_trace(&s->img);
+    pvz2native::game_install_quest_shuffle_seed(&s->img);
 
     /* Load-time bring-up, then the registered-native lifecycle, in the exact
      * order the real Android runtime uses -- see engine/. */
+    /* The engine reads pp.dat late in the boot; fix the completed-quests list before that. */
+    pvz2native::fix_completed_repeatables(&s->rt);
+
     engine::boot_native_library(&s->img, &s->rt);
     engine::run_eaframework_startup(&s->img, &s->rt);
     engine::run_game_app_initialize(&s->img, &s->rt);

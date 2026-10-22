@@ -5,6 +5,7 @@
 #include <map>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include <pvz2native/dependencies/dependency.h>
 #include <pvz2native/runtime/guest_memmap.h>
@@ -186,6 +187,14 @@ void register_android_http(HookTable &t);
  * gates open. Must stay offline through onSurfaceCreated or the loading screen
  * hangs waiting on content downloads this port cannot finish. */
 void net_mark_boot_finished();
+
+/* One PACKAGES\\<NAME>.RTON from the OBB's Packages group (the files the engine itself loads), kept as
+ * userdata/CDN.<tag>/<cache_name>.<tag> next to the files the emulated CDN serves, so that later launches
+ * read that small file instead of inflating the group. Like those files, it is taken from the OBB only when
+ * missing and on every launch with [runtime] rewrite_cdn=1; nothing else refreshes it. It is private to the
+ * port: the game is not asked for it. Empty when neither the copy nor the OBB can be read. Safe before the
+ * guest runs. */
+std::vector<std::uint8_t> read_cdn_cached_package(GuestRuntime *rt, const char *pkg_path, const char *cache_name);
 
 void register_framework_activity(HookTable &t);
 void register_google_play(HookTable &t);

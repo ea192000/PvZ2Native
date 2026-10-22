@@ -252,11 +252,12 @@ Single source of truth for paths and debugging (legacy `PVZ2_*` environment vari
 | `[paths]` | `so`, `obb` | Paths to the `.so` and `.obb` (relative to the executable, or absolute). |
 | `[paths]` | `save` | Optional save folder; unset stores `prefs.dat` next to the exe. |
 | `[log]` | `console` | Show console/log output (default `0`). |
-| `[log]` | `verbose` / `trace` / `input` | `verbose`: boot + frame-stamped timeline (`[engine]`, `[java]`, `[screen]`, `[census]`, `[state]`) for hunting a dead UI (implies `input`; needs `console=1` or a `logfile`); `trace`: imports; `input`: events. |
+| `[log]` | `verbose` / `trace` / `input` | `verbose`: boot + frame-stamped timeline (`[engine]`, `[java]`, `[screen]`, `[census]`, `[state]`, `[quest]`, `[quest-save]`, `[quest-io]`) for hunting a dead UI (implies `input`; needs `console=1` or a `logfile`); `trace`: imports; `input`: events. |
 | `[video]` | `fullscreen`, `display`, `width`, `height`, `fps_limit` | Display / monitor index (also in settings UI). |
 | `[game]` | `user_locale`, `currency_*`, `emulate_iap` | Locale, store cosmetics, free IAP (also in settings UI). |
 | `[game]` | `achievement_notifications` | Unlock toast + SFX (`1` default; `0` silences UI only). |
 | `[runtime]` | `use_cdn`, `rewrite_cdn` | Emulated CDN on/off (default on) and forced re-seed from the OBB (also in settings UI → Events). |
+| `[runtime]` | `allow_repeat_quests` | `1` (default): repeatable quests you already claimed count kills again instead of completing by themselves when they come up again (the save's completed-quests list is cleaned at launch); `0` = leave the save alone. |
 | `[shortcuts]` | `bind_*` | Keyboard → on-screen tap (also in settings UI). |
 | `[board]` / `[gamepad]` / `[gamepad_binds]` | … | Controller focus grid and binds (also in settings UI). |
 

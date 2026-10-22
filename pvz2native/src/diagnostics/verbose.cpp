@@ -5,6 +5,7 @@
 #include <pvz2native/config.h>
 #include <pvz2native/dex/dex.h>
 #include <pvz2native/diagnostics/diagnostics.h>
+#include <pvz2native/diagnostics/quest_trace.h>
 #include <pvz2native/log.h>
 #include <pvz2native/runtime/dynarmic_config.h>
 
@@ -130,6 +131,8 @@ void note_input_delivered(unsigned events, bool had_down, bool had_up) {
 void after_frame(pvz2_elf_image_t *img, GuestRuntime *rt, int frame) {
     g_frame.store(frame, std::memory_order_relaxed);
     if (!verbose()) return;
+
+    quest_trace_after_frame(frame);
 
     {
         std::string why;

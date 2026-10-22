@@ -124,8 +124,9 @@ const Setting kSettings[] = {
      "lifecycle call, plus lines stamped with the frame number: [engine] the engine's\n"
      "own state keys when they change, [java] every Java method it calls (throttled,\n"
      "raw args), [screen] reward-screen create/destroy, [census] live objects by\n"
-     "vtable, and [state] fps/draw/input/heap every 5 s. Needs a place to print:\n"
-     "console=1 or a logfile. Use it to chase a dead UI.",
+     "vtable, [state] fps/draw/input/heap every 5 s, and [quest] / [quest-save] /\n"
+     "[quest-io] for the quest system. Needs a place to print: console=1 or a\n"
+     "logfile. Use it to chase a dead UI or a quest problem.",
      nullptr, "0"},
     {"log", "trace", nullptr, Kind::kBool, offsetof(pvz2_config_t, trace), 0,
      "Per-import-call trace. Extremely loud (~57 MB of stdout per run).", nullptr, "0"},
@@ -180,6 +181,13 @@ const Setting kSettings[] = {
      "Events and daily content read from the (emulated) CDN, like the live game did.\n"
      "1 = on (default). 0 = off: the game gets no CDN answers and uses only what is inside the OBB,\n"
      "so server-driven events do not appear. Takes effect at the next launch.",
+     nullptr, "1"},
+    {"runtime", "allow_repeat_quests", nullptr, Kind::kBool, offsetof(pvz2_config_t, allow_repeat_quests), 0,
+     "Repeatable quests (\"Defeat N zombies\") that you already completed once are offered again\n"
+     "by the game, which then completes them by itself on the first kill without counting any,\n"
+     "paying the reward. 1 (default) lets them repeat as intended: at every launch the repeatable\n"
+     "quests you already claimed are removed from the list of completed quests in the save, so they\n"
+     "count kills like new ones. 0 = leave the save alone.",
      nullptr, "1"},
 
     {"gl", "debug_clear", nullptr, Kind::kBool, offsetof(pvz2_config_t, gl_debug_clear), 0,
@@ -1520,7 +1528,8 @@ void heal_config_ini(const char *ini_path) {
         const bool added_later = (std::strcmp(s.section, "runtime") == 0 &&
                                   (std::strcmp(s.key, "lod_legacy_hacks") == 0 || std::strcmp(s.key, "force_date") == 0 ||
                                    std::strcmp(s.key, "no_fix_save_dates") == 0 ||
-                                   std::strcmp(s.key, "use_cdn") == 0)) ||
+                                   std::strcmp(s.key, "use_cdn") == 0 ||
+                                   std::strcmp(s.key, "allow_repeat_quests") == 0)) ||
                                  (std::strcmp(s.section, "gl") == 0 && std::strcmp(s.key, "no_etc2") == 0);
         if (!added_later || s.seed != nullptr) continue;
         if (insert_commented_ini_key(lines, s.section, s.key, example_for(s), s.comment)) dirty = true;
@@ -1582,6 +1591,7 @@ extern "C" void pvz2_config_load(const char *ini_path, const char *base_dir) {
     g_config = pvz2_config_t{}; /* reset to all-zero before (re)reading */
     g_config.emulate_iap = 0;
     g_config.use_cdn = 1;
+    g_config.allow_repeat_quests = 1;
     g_config.achievement_notifications = 1;
     g_config.persist_saves = 1;
     g_config.gamepad_enabled = 1;

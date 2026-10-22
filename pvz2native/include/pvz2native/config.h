@@ -70,6 +70,7 @@ typedef struct pvz2_config {
     int rewrite_cdn;
     int no_fix_save_dates;  /* 1 = do not reset future-dated quest-pick times in the save at launch */
     int use_cdn;            /* [runtime] use_cdn: 0 = do not serve the emulated CDN (default 1) */
+    int allow_repeat_quests; /* [runtime] allow_repeat_quests: 1 = repeatable quests you already claimed count kills again instead of completing by themselves (default 1) */
     char force_date[32];    /* [runtime] force_date: "YYYY-MM-DD [HH:MM[:SS]]" local time the game sees; empty = real clock */
     int lod_legacy_hacks;   /* 1 = old daily-pinata workarounds (progress/uid-order patches + completed-field reset) */
 

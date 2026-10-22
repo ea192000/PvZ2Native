@@ -137,5 +137,26 @@ std::uint32_t make_guest_string(pvz2_elf_image_t *img, GuestRuntime *rt, const c
     return dest;
 }
 
+std::string guess_callers(GuestCall &c, int max_frames) {
+    pvz2_elf_image_t *img = c.rt->img;
+    if (img == nullptr) return "";
+    const std::uint32_t lo = img->so_base + img->text_vaddr, hi = lo + img->text_size;
+    std::string out;
+    int found = 0;
+    const std::uint32_t sp = c.regs[13];
+    for (std::uint32_t a = sp; a < sp + 4096 && found < max_frames; a += 4) {
+        if (!c.in_bounds(a, 4)) break;
+        const std::uint32_t w = c.read32(a);
+        if (w < lo + 4 || w >= hi || (w & 1) || !c.in_bounds(w - 4, 4)) continue;
+        const std::uint32_t prev = c.read32(w - 4);
+        if ((prev & 0x0F000000) != 0x0B000000 && (prev & 0x0FFFFFF0) != 0x012FFF30) continue;
+        char buf[24];
+        std::snprintf(buf, sizeof(buf), " 0x%x", w - img->so_base);
+        out += buf;
+        ++found;
+    }
+    return out;
+}
+
 }  // namespace diagnostics
 }  // namespace pvz2native

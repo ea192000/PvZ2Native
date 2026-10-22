@@ -218,6 +218,30 @@ struct GameSymbols {
          * instance is still a live object of that class before it is destroyed. */
         std::uint32_t scr_vtable;
 
+        /* Quest manager entry points, only read by the [log] verbose=1 quest trace
+         * (game_install_quest_trace). All are `PUSH {...,lr}` at the entry; 0 = not mapped.
+         *   quest_pick_fn      -- QuestMgr::Pick(this): runs the pending pick, appends the
+         *                         human-readable "Pick Time / Limiters / + Add N quests from
+         *                         slot X" text to a std::string at this+0x94.
+         *   quest_slot_pick_fn -- (this, slotInfo, count): picks up to `count` quests of one
+         *                         slot; returns how many are still missing.
+         *   quest_candidate_fn -- (out, this, const std::string &id): looks an eligible
+         *                         candidate up in the active list; one call per candidate.
+         *   quest_add_fn       -- (out, this, questDataHandle): instantiates the quest and
+         *                         appends it to the active list. */
+        std::uint32_t quest_pick_fn;
+        std::uint32_t quest_slot_pick_fn;
+        std::uint32_t quest_candidate_fn;
+        std::uint32_t quest_add_fn;
+        /* The shuffle the pick runs over a slot's candidates (std::random_shuffle over 8-byte
+         * handles, called from the slot pick and from one wrapper). 0 = not mapped. */
+        std::uint32_t quest_shuffle_fn;
+        /* libc++'s default shuffle generator std::__rs_default, a function-local static
+         * std::mt19937 inside the .so: guard byte at +4, 624 state words at +8, index at
+         * +0x9c8. Built lazily on first use from the fixed default seed 5489, so every process
+         * starts the same sequence. Offset of the object itself; 0 = not mapped. */
+        std::uint32_t rs_default_state;
+
         /* The receipt verdict, which takes two instructions because the engine
          * only ever reaches a "purchase finished" state through its validation
          * server. Both are `MOV Rd, #imm` and 0 means not mapped.

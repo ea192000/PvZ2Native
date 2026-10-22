@@ -30,6 +30,7 @@
 #include <pvz2native/config.h>
 #include <pvz2native/dependencies/vfs.h>
 #include <pvz2native/game/symbols.h>
+#include <pvz2native/host_files.h>
 #include <pvz2native/log.h>
 #include <pvz2native/runtime/guest_runtime.h>
 #include <pvz2native/runtime/rsb_index.h>
@@ -134,33 +135,6 @@ std::string rton_sibling(const std::string &name) {
     const auto dot = base.find_last_of('.');
     if (dot != std::string::npos) base.resize(dot);
     return base + ".rton";
-}
-
-bool file_readable(const std::string &path) {
-    std::ifstream f(path, std::ios::binary);
-    return (bool)f;
-}
-
-std::vector<std::uint8_t> read_file_bytes(const std::string &path) {
-    std::ifstream f(path, std::ios::binary | std::ios::ate);
-    if (!f) return {};
-    const auto n = f.tellg();
-    if (n <= 0) return {};
-    std::vector<std::uint8_t> out((std::size_t)n);
-    f.seekg(0);
-    f.read(reinterpret_cast<char *>(out.data()), n);
-    if (!f) return {};
-    return out;
-}
-
-bool write_file_bytes(const std::string &path, const std::vector<std::uint8_t> &body) {
-    std::error_code ec;
-    const auto parent = std::filesystem::path(path).parent_path();
-    if (!parent.empty()) std::filesystem::create_directories(parent, ec);
-    std::ofstream f(path, std::ios::binary | std::ios::trunc);
-    if (!f) return false;
-    if (!body.empty()) f.write(reinterpret_cast<const char *>(body.data()), (std::streamsize)body.size());
-    return (bool)f;
 }
 
 /* "4.5.2" / "9.6.1" -> "4.5" / "9.6" for userdata/CDN.<tag> and URL suffixes. */
@@ -350,7 +324,7 @@ void drop_packages_cache() {
 }
 
 bool cdn_dir_ready(const std::string &root) {
-    return std::filesystem::is_directory(root) && file_readable(root + "/.seeded");
+    return std::filesystem::is_directory(root) && host_files::readable(root + "/.seeded");
 }
 
 /* Copy every known CDN package out of the OBB into userdata/CDN.<maj.min>/,
@@ -373,7 +347,7 @@ bool seed_cdn_dir_from_obb(GuestRuntime *rt, const std::string &root, bool overw
             continue;
         }
         const std::string out = root + "/" + m.cdn + "." + tag;
-        if (!write_file_bytes(out, body)) {
+        if (!host_files::write(out, body)) {
             pvz2_log("[http] CDN seed failed writing %s", out.c_str());
             return false;
         }
@@ -383,7 +357,7 @@ bool seed_cdn_dir_from_obb(GuestRuntime *rt, const std::string &root, bool overw
         pvz2_log("[http] CDN seed wrote 0 files from OBB into %s", root.c_str());
         return false;
     }
-    if (!write_file_bytes(root + "/.seeded", {})) {
+    if (!host_files::write(root + "/.seeded", {})) {
         pvz2_log("[http] CDN seed could not write %s/.seeded", root.c_str());
         return false;
     }
@@ -447,8 +421,8 @@ bool resolve_cdn_body(GuestRuntime *rt, const std::string &url, std::string &src
         root + "/android/" + rton_l,
     };
     for (const std::string &c : candidates) {
-        if (!file_readable(c)) continue;
-        body = read_file_bytes(c);
+        if (!host_files::readable(c)) continue;
+        body = host_files::read(c);
         if (!body.empty()) {
             src_label = c;
             return true;
@@ -662,6 +636,23 @@ void get_network_status(DexCall &d) {
 }
 
 }  // namespace
+
+std::vector<std::uint8_t> read_cdn_cached_package(GuestRuntime *rt, const char *pkg_path, const char *cache_name) {
+    const std::string file = cdn_root_dir() + "/" + cache_name + "." + cdn_version_tag();
+
+    /* Like the files the emulated CDN serves: taken from the OBB when missing, or on every launch with
+     * rewrite_cdn=1, and read from the copy otherwise. */
+    if (pvz2_config()->rewrite_cdn == 0 && host_files::readable(file)) {
+        std::vector<std::uint8_t> cached = host_files::read(file);
+        if (!cached.empty()) return cached;
+    }
+
+    std::vector<std::uint8_t> body = read_obb_packages_file(rt, pkg_path);
+    drop_packages_cache();
+    if (!body.empty() && host_files::write(file, body))
+        pvz2_log("[http] cached %s from the OBB into %s", pkg_path, file.c_str());
+    return body;
+}
 
 void net_mark_boot_finished() {
     const bool was = g_boot_finished.exchange(true);

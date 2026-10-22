@@ -17,6 +17,7 @@
 #include <pvz2native/dependencies/libc_internal.h>
 
 #include <pvz2native/dependencies/vfs.h>
+#include <pvz2native/diagnostics/quest_trace.h>
 
 #include <algorithm>
 #include <cctype>
@@ -401,6 +402,7 @@ void c_fopen(GuestCall &c) {
     }
     c.log("[io] fopen(\"%s\" [%s], \"%s\") -> %s (token=0x%08x)", gpath.c_str(), hpath.c_str(),
           mode.c_str(), f ? "OK" : "FAIL", token);
+    pvz2native::diagnostics::quest_trace_note_open(c, gpath, mode);
     c.set_result(token);
 }
 

@@ -13,7 +13,7 @@ extern "C" {
  * list (last pick per quest group) in userdata/pp.dat and userdata/snapshot*.dat that is more
  * than 30 days ahead of now is reset to one day ago (past the engine's own 12 h pick wait).
  *
- * The files are edited in place through a small RTON walker; a file that is not fully understood
+ * The files are edited in place through the RTON tree (rton_tree.h); a file that is not fully understood
  * is left untouched, and the new bytes are verified to parse before the file is replaced.
  * Does nothing with [runtime] no_fix_save_dates=1, or while [runtime] force_date is set (the
  * clock is then intentionally not the real one).
@@ -23,6 +23,27 @@ int pvz2_fix_future_save_dates(void);
 
 #ifdef __cplusplus
 }
+
+#include <cstdint>
+#include <vector>
+
+/* Takes the claimed repeatable quests off the player's list of completed quests (`cqi` in userdata/pp.dat and
+ * snapshot*.dat).
+ *
+ * The engine picks a slot's quests among ALL its repeatable ones, completed or not, and a quest whose id
+ * is on that list completes by itself on its first progress event, with the kill counter untouched and
+ * the reward paid. A repeatable that was ever completed therefore "completes" every time it is picked
+ * again. Without its entry it behaves like a fresh quest. Completing one adds the entry back, so this
+ * runs on every launch. Only entries with s = 3 (claimed) go: one with s = 2 is a quest completed but still
+ * waiting for its reward, and stays. Quests in progress and non-repeatable quests are never touched.
+ *
+ * Which quests are repeatable is read from the OBB's own quest definitions (see quest_fix.h), so it follows
+ * the data the game runs with. `repeatable_sorted` holds the FNV-1 hashes of their ids, ascending; with none
+ * the save is left alone. Same safeguards as above: a missing file is skipped, one that is not fully
+ * understood is left alone, and the result is verified before it replaces the original.
+ *
+ * Returns the number of entries removed. Call before the guest loads its save. */
+int pvz2_fix_repeat_quests(const std::vector<std::uint32_t> &repeatable_sorted);
 #endif
 
 #endif

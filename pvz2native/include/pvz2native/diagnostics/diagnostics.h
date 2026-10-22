@@ -2,7 +2,9 @@
 #define PVZ2NATIVE_DIAGNOSTICS_DIAGNOSTICS_H
 
 #include <cstdint>
+#include <string>
 
+#include <pvz2native/dependencies/dependency.h>
 #include <pvz2native/elf32/elf32_loader.h>
 #include <pvz2native/runtime/guest_runtime.h>
 
@@ -41,6 +43,14 @@ void dump_touch_scaler(pvz2_elf_image_t *img);
  * lifecycle call writes which global, instead of guessing from static
  * disassembly. */
 void dump_dword(pvz2_elf_image_t *img, const char *label, std::uint32_t offset);
+
+/* Guessed call chain of the guest code running now, as " 0x<offset>" .so offsets (at most `max_frames`).
+ *
+ * The engine is stripped and has no RTTI, so a log line is often the only name we get for a function -- but
+ * the addresses of the functions that were running are enough to disassemble them offline. Walks the guest
+ * stack and keeps every word that points into the code right after a BL/BLX, i.e. a plausible return
+ * address. Heuristic: it can include stale entries. */
+std::string guess_callers(GuestCall &c, int max_frames = 10);
 
 /* The four bytes that decide whether onDrawFrame does anything (9.6.1 only,
  * quiet on any version whose app_driver is unmapped).

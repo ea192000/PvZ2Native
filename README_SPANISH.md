@@ -252,11 +252,12 @@ Fuente única de verdad para rutas y depuración (las antiguas variables `PVZ2_*
 | `[paths]` | `so`, `obb` | Rutas al `.so` y al `.obb` (relativas al ejecutable o absolutas). |
 | `[paths]` | `save` | Carpeta de guardado opcional; sin valor, `prefs.dat` junto al exe. |
 | `[log]` | `console` | Mostrar consola/log (por defecto `0`). |
-| `[log]` | `verbose` / `trace` / `input` | `verbose`: boot + línea de tiempo con número de frame (`[engine]`, `[java]`, `[screen]`, `[census]`, `[state]`) para cazar una UI muerta (implica `input`; necesita `console=1` o un `logfile`); `trace`: imports; `input`: eventos. |
+| `[log]` | `verbose` / `trace` / `input` | `verbose`: boot + línea de tiempo con número de frame (`[engine]`, `[java]`, `[screen]`, `[census]`, `[state]`, `[quest]`, `[quest-save]`, `[quest-io]`) para cazar una UI muerta (implica `input`; necesita `console=1` o un `logfile`); `trace`: imports; `input`: eventos. |
 | `[video]` | `fullscreen`, `display`, `width`, `height`, `fps_limit` | Pantalla / índice de monitor (también en la UI de ajustes). |
 | `[game]` | `user_locale`, `currency_*`, `emulate_iap` | Idioma, monedas, IAP gratis (también en la UI). |
 | `[game]` | `achievement_notifications` | Toast + SFX al desbloquear (`1` por defecto; `0` solo silencia la UI). |
 | `[runtime]` | `use_cdn`, `rewrite_cdn` | CDN emulado activado/desactivado (por defecto activado) y re-copia forzada desde el OBB (también en la UI → Eventos). |
+| `[runtime]` | `allow_repeat_quests` | `1` (por defecto): las quests repetibles que ya cobraste vuelven a contar muertes en vez de completarse solas cuando vuelven a salir (la lista de completadas del guardado se limpia al arrancar); `0` = no tocar el guardado. |
 | `[shortcuts]` | `bind_*` | Tecla → toque en pantalla (también en la UI). |
 | `[board]` / `[gamepad]` / `[gamepad_binds]` | … | Rejilla y binds del mando (también en la UI). |
 

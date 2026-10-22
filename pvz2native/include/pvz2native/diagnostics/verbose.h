@@ -20,6 +20,10 @@
  *   [java]   a Java method the engine called (throttled per method, with raw args)
  *   [census] live engine objects grouped by vtable (see census() in verbose.cpp)
  *   [state]  every few seconds: fps, import/JNI/draw rates, input age, heap
+ *   [quest]      the quest manager's pick path: slots, candidates, picks and the engine's own pick log
+ *                (game/patches.cpp, game_install_quest_trace)
+ *   [quest-save] pp.dat / ActiveQuests snapshots and their diffs; [quest-io] who opens them for writing
+ *                (diagnostics/quest_trace.h)
  *
  * The boot banners (.init_array, lifecycle calls) are the older half of verbose
  * and are still printed from dynarmic_config.cpp. */

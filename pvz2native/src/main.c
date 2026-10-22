@@ -1291,6 +1291,21 @@ static void draw_boot_splash_fade(SDL_Window *window) {
     draw_boot_splash_layer(window, alpha, 0, 0);
 }
 
+/* One defined frame while the boot has not started: the loading screen when its textures loaded, a plain
+ * colour otherwise. Safe to call repeatedly. */
+static void paint_startup_frame(SDL_Window *window, int have_splash) {
+    if (have_splash) {
+        g_boot_overlay_active = 1;
+        draw_boot_splash_layer(window, 1.0f, 1, 1);
+    } else {
+        g_boot_overlay_active = 0;
+        glClearColor(0.06f, 0.07f, 0.10f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        SDL_GL_SwapWindow(window);
+        SDL_PumpEvents();
+    }
+}
+
 static void destroy_boot_splash(void) {
     if (g_splash_tex != 0) {
         glDeleteTextures(1, &g_splash_tex);
@@ -1850,7 +1865,7 @@ int main(int argc, char **argv) {
                                            SDL_WINDOWPOS_CENTERED_DISPLAY(launch_display),
                                            SDL_WINDOWPOS_CENTERED_DISPLAY(launch_display),
                                            launch_w, launch_h,
-                                           SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN);
+                                           SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN);
     if (!window) {
         pvz2_log("[sdl] SDL_CreateWindow failed: %s", SDL_GetError());
         pvz2_host_pre_sdl_quit();
@@ -1898,6 +1913,15 @@ int main(int argc, char **argv) {
     pvz2_log("[gl] context ready: %s (loaded via glad %d.%d)", (const char *)glGetString(GL_VERSION),
              GLAD_VERSION_MAJOR(glad_version), GLAD_VERSION_MINOR(glad_version));
 
+    /* The loading screen goes up BEFORE anything else that takes time (the GPU capability check, the
+     * fullscreen switch, the boot). The window was created hidden, so the player never sees it blank: it
+     * appears with the first frame already painted. */
+    const int have_splash = load_embedded_splash_texture();
+    paint_startup_frame(window, have_splash);
+    SDL_ShowWindow(window);
+    paint_startup_frame(window, have_splash); /* some drivers only present after the window is shown */
+    pvz2_log("[boot] loading screen on screen at %u ms", (unsigned)SDL_GetTicks());
+
     /* Verify the GPU can actually run the engine (OpenGL 2.0 + framebuffer
      * objects) BEFORE loading the .so. A GPU that falls short is shown a message
      * box naming it and the versions, then the app exits cleanly instead of
@@ -1927,18 +1951,9 @@ int main(int argc, char **argv) {
      * by the VFS layer from the config. */
     const char *so_path = cfg->so_path;
 
-    /* Paint a defined frame before the (multi-minute) boot. If an embedded
-     * splash is available, show it; otherwise fall back to the plain colour. */
-    if (load_embedded_splash_texture()) {
-        g_boot_overlay_active = 1;
-        draw_boot_splash_layer(window, 1.0f, 1, 1);
-    } else {
-        g_boot_overlay_active = 0;
-        glClearColor(0.06f, 0.07f, 0.10f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-        SDL_GL_SwapWindow(window);
-        SDL_PumpEvents();
-    }
+    /* The fullscreen switch and the resize above leave the window blank for a moment: repaint the loading
+     * screen (already loaded) before the (multi-minute) boot. */
+    paint_startup_frame(window, have_splash);
 
     pvz2_session_set_host_pump(host_pump);
     pvz2_session_t *session = pvz2_session_start(so_path);

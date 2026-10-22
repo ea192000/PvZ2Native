@@ -58,6 +58,18 @@ void game_install_lod_apply_probe(pvz2_elf_image_t *img);
  * Same preconditions as game_install_lod_apply_probe. */
 void game_install_reward_screen_fix(pvz2_elf_image_t *img);
 
+/* [log] verbose=1 only: read-only probes on the quest manager's pick path (which candidates a
+ * slot had, what was picked, the engine's own pick log), printed as [quest] lines. They log and
+ * then do exactly what the instruction they replace did, so game behaviour is unchanged. Does
+ * nothing with verbose off. Same preconditions as game_install_lod_apply_probe. */
+void game_install_quest_trace(pvz2_elf_image_t *img);
+
+/* Reseeds the engine's shuffle generator before every quest pick, so daily quests rotate instead
+ * of picking the same one in every freshly started process (see the comment in patches.cpp).
+ * Always on: it fixes a bug, there is nothing to choose. Same preconditions as
+ * game_install_lod_apply_probe. */
+void game_install_quest_shuffle_seed(pvz2_elf_image_t *img);
+
 }  // namespace pvz2native
 
 #endif
