@@ -7,6 +7,7 @@
 #include <pvz2native/dex/dex.h>
 #include <pvz2native/game/symbols.h>
 #include <pvz2native/diagnostics/diagnostics.h>
+#include <pvz2native/host_time.h>
 #include <pvz2native/diagnostics/verbose.h>
 #include <pvz2native/log.h>
 
@@ -185,12 +186,6 @@ bool force_lod_apply(pvz2_elf_image_t *img) {
         rewrite_word(img, sym().patch.lod_match_uid_bls, 0x9A000008u, kNopMovR0R0,
                      "lod: uid-order BLS->NOP"))
         any = true;
-    /* BEQ into the float/skewed SexyApp clock -- that path was returning
-     * ~2031 timestamps, so schedule match picked birthday UID 2980 and the
-     * map banner showed ~40000h. Fall through to time() instead. */
-    if (rewrite_word(img, sym().patch.lod_time_float_beq, 0x0A000004u, kNopMovR0R0,
-                     "lod: time float BEQ->NOP"))
-        any = true;
     return any;
 }
 
@@ -234,7 +229,7 @@ void game_apply_patches(pvz2_elf_image_t *img) {
 
     /* LoD schedule commit (alod / wm) -- independent of connectivity patches. */
     if (force_lod_apply(img)) {
-        pvz2_log("[patch] lod apply: stub->real apply, ready/match/time gates NOP'd so schedule can "
+        pvz2_log("[patch] lod apply: stub->real apply, ready/match gates NOP'd so schedule can "
                  "commit Active LoD (tick BLEQ left alone)%s",
                  pvz2_config()->lod_legacy_hacks
                      ? "; legacy: progress + uid-order gates NOP'd, completed-field reset on"
@@ -880,6 +875,42 @@ void game_install_quest_shuffle_seed(pvz2_elf_image_t *img) {
     if (p.quest_shuffle_fn == 0 || p.rs_default_state == 0) return;
     install_svc_at(img, p.quest_shuffle_fn, kShufflePush, "quest.shuffle.enter", quest_shuffle_enter,
                    "quest shuffle reseed");
+}
+
+/* --- engine clock ------------------------------------------------------------ *
+ *
+ * The engine does not compare dates in UTC. Its clock function returns `UTC + tm_gmtoff`: the player's wall
+ * clock written as if it were UTC. The Level of the Day schedule dates (00:00 UTC, one entry per calendar
+ * day) are compared with that, so a day starts at the player's own midnight, and the end of the active event
+ * is worked out as mktime(gmtime(start)) + days, the matching local midnight. Everything lives in the same
+ * "local clock" space, in any time zone.
+ *
+ * The engine's own clock is a float counter plus an offset that the game server sets. Without a server it
+ * reads ~2030, which sent the schedule to far-future events, so the port made the function return plain
+ * time(). That dropped the offset: the start was then compared in UTC and the end in local time, and for
+ * UTC-3 the next day's event appeared three hours early with 26 h left (in UTC-8, eight hours early). The
+ * function is now replaced by one that returns the real time plus the host's offset, which is what the
+ * original returned once the server had set its clock. [log] force_date is part of time(), so it carries
+ * through. */
+namespace {
+
+constexpr std::uint32_t kEngineClockPush = 0xE92D4010u; /* PUSH {r4,lr} */
+constexpr std::uint32_t kClockUseDeviceTime = 0x54;     /* byte: the engine's own "use time()" switch */
+
+void engine_clock(GuestCall &c) {
+    const std::int64_t utc = (std::int64_t)std::time(nullptr) + pvz2_time_offset_sec();
+    const std::uint32_t clock = c.arg(0);
+    const bool device_time = c.in_bounds(clock + kClockUseDeviceTime, 1) && c.read8(clock + kClockUseDeviceTime) != 0;
+    c.set_result((std::uint32_t)(device_time ? utc : utc + host_time::utc_offset((std::time_t)utc)));
+    /* Returns to the caller: the function's body never runs. */
+}
+
+}  // namespace
+
+void game_install_engine_clock(pvz2_elf_image_t *img) {
+    if (img == nullptr) return;
+    install_svc_at(img, sym().patch.engine_clock_fn, kEngineClockPush, "engine.clock", engine_clock,
+                   "engine clock (UTC + local offset)");
 }
 
 }  // namespace pvz2native

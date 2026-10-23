@@ -946,7 +946,16 @@ static int g_boot_overlay_active = 0;
 static int g_splash_fade_active = 0;
 static Uint32 g_splash_fade_started = 0;
 static const Uint32 kSplashFadeMs = 400;
+/* The bar moves in steps: each boot phase raises g_boot_progress by the same kBootBarStep and the drawn value
+ * g_boot_shown jumps to it when it is behind. In between, the bar creeps on its own at a constant
+ * kBootBarCreepPxPerSec (the engine reports nothing inside its longest phase, onSurfaceCreated) up to
+ * kBootBarCeiling; the final step, once the first frame is done, takes it to 100 %. */
 static float g_boot_progress = 0.02f;
+static float g_boot_shown = 0.02f;
+static Uint32 g_boot_bar_tick = 0;
+static const float kBootBarCreepPxPerSec = 20.0f;
+static const float kBootBarStep = 0.01f;
+static const float kBootBarCeiling = 0.99f;
 static char g_last_boot_status[160] = {0};
 
 static void destroy_boot_splash(void);
@@ -954,21 +963,33 @@ static void destroy_boot_splash(void);
 static void update_boot_progress_from_status(const char *status) {
     if (!status || status[0] == '\0') return;
 
-    unsigned done = 0, total = 0;
-    if (SDL_sscanf(status, "booting: static constructors %u/%u", &done, &total) == 2 && total != 0) {
-        float p = (float)done / (float)total;
-        if (p < 0.0f) p = 0.0f;
-        if (p > 1.0f) p = 1.0f;
-
-        const float mapped = 0.10f + (0.80f * p);
-        if (mapped > g_boot_progress) g_boot_progress = mapped;
-    } else if (SDL_strcmp(status, g_last_boot_status) != 0) {
-        float bumped = g_boot_progress + 0.03f;
-        if (bumped > 0.95f) bumped = 0.95f;
-        if (bumped > g_boot_progress) g_boot_progress = bumped;
+    /* Every constructor is its own status line; they all count as one phase. */
+    const char *kCtors = "booting: static constructors";
+    const int is_ctor = SDL_strncmp(status, kCtors, SDL_strlen(kCtors)) == 0;
+    const int was_ctor = SDL_strncmp(g_last_boot_status, kCtors, SDL_strlen(kCtors)) == 0;
+    if (is_ctor ? !was_ctor : SDL_strcmp(status, g_last_boot_status) != 0) {
+        g_boot_progress += kBootBarStep;
+        if (g_boot_progress > kBootBarCeiling) g_boot_progress = kBootBarCeiling;
     }
 
     SDL_snprintf(g_last_boot_status, sizeof(g_last_boot_status), "%s", status);
+}
+
+/* Fraction of the bar to draw; fill_w_px is the bar's width in pixels (the creep speed is in pixels). */
+static float advance_boot_bar(int fill_w_px) {
+    const Uint32 now = SDL_GetTicks();
+    float dt = g_boot_bar_tick ? (float)(now - g_boot_bar_tick) / 1000.0f : 0.0f;
+    g_boot_bar_tick = now;
+    if (dt > 0.25f) dt = 0.25f; /* a stall in the host must not turn into a leap */
+
+    if (g_boot_shown < g_boot_progress) g_boot_shown = g_boot_progress;
+    const float px = fill_w_px > 0 ? 1.0f / (float)fill_w_px : 0.0f;
+    if (g_boot_shown < kBootBarCeiling && g_boot_progress < 1.0f) {
+        g_boot_shown += kBootBarCreepPxPerSec * px * dt;
+        if (g_boot_shown > kBootBarCeiling) g_boot_shown = kBootBarCeiling;
+    }
+    if (g_boot_shown > 1.0f) g_boot_shown = 1.0f;
+    return g_boot_shown;
 }
 
 static int load_bmp_texture_from_memory(const void *ptr, int bytes, Uint32 pixel_format,
@@ -1162,10 +1183,6 @@ static void draw_boot_splash_layer(SDL_Window *window, float alpha, int clear_ba
 
     glDisable(GL_TEXTURE_2D);
 
-    float progress = g_boot_progress;
-    if (progress < 0.0f) progress = 0.0f;
-    if (progress > 1.0f) progress = 1.0f;
-
     const float scale_x = (float)dw / 1920.0f;
     const float scale_y = (float)dh / 1080.0f;
 
@@ -1204,6 +1221,7 @@ static void draw_boot_splash_layer(SDL_Window *window, float alpha, int clear_ba
     if (fill_w_px < 1) fill_w_px = 1;
     if (fill_h_px < 1) fill_h_px = 1;
 
+    const float progress = advance_boot_bar(fill_w_px);
     const int fill_cur_w_px = (int)((float)fill_w_px * progress + 0.5f);
 
     const float frame_x0 = -1.0f + (2.0f * (float)frame_x_px) / (float)dw;
@@ -1266,7 +1284,6 @@ static void begin_boot_splash_fade(void) {
         g_boot_overlay_active = 0;
         return;
     }
-    g_boot_progress = 1.0f;
     g_boot_overlay_active = 1;
     g_splash_fade_active = 1;
     g_splash_fade_started = 0;
@@ -1277,6 +1294,7 @@ static void draw_boot_splash_fade(SDL_Window *window) {
 
     if (g_splash_fade_started == 0) {
         g_splash_fade_started = SDL_GetTicks();
+        g_boot_progress = 1.0f; /* the first frame is done: the final step */
         draw_boot_splash_layer(window, 1.0f, 0, 0);
         return;
     }
@@ -1308,6 +1326,7 @@ static void paint_startup_frame(SDL_Window *window, int have_splash) {
 
 static void destroy_boot_splash(void) {
     if (g_splash_tex != 0) {
+        pvz2_frame_limit_vsync_resume();
         glDeleteTextures(1, &g_splash_tex);
         g_splash_tex = 0;
     }
@@ -1325,6 +1344,8 @@ static void destroy_boot_splash(void) {
     g_splash_fade_active = 0;
     g_splash_fade_started = 0;
     g_boot_progress = 0.02f;
+    g_boot_shown = 0.02f;
+    g_boot_bar_tick = 0;
     g_last_boot_status[0] = '\0';
 }
 
@@ -1626,6 +1647,10 @@ static void host_pump(void) {
             config_screen_draw(g_window);
             SDL_GL_SwapWindow(g_window);
         }
+    } else if (g_window && g_splash_fade_active && g_splash_fade_started == 0 && g_splash_tex != 0) {
+        /* The first frame after the boot takes seconds; until it is done and the fade starts, keep the loading
+         * screen (and its bar) alive instead of leaving the window frozen. */
+        draw_boot_splash_layer(g_window, 1.0f, 1, 1);
     }
 }
 
@@ -1956,6 +1981,9 @@ int main(int argc, char **argv) {
     paint_startup_frame(window, have_splash);
 
     pvz2_session_set_host_pump(host_pump);
+    /* The loading screen is repainted from inside the boot many times a second: without vsync those presents do not
+     * wait for the display and the boot is not slowed down. Back on when the loading screen is gone. */
+    if (have_splash) pvz2_frame_limit_vsync_suspend();
     pvz2_session_t *session = pvz2_session_start(so_path);
     if (session) begin_boot_splash_fade();
     else destroy_boot_splash();

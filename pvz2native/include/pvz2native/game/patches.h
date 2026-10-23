@@ -70,6 +70,11 @@ void game_install_quest_trace(pvz2_elf_image_t *img);
  * game_install_lod_apply_probe. */
 void game_install_quest_shuffle_seed(pvz2_elf_image_t *img);
 
+/* Replaces the engine's clock function with one that returns the real time plus the host's UTC offset, the
+ * value the original produced, so the daily events and the quest picks turn over at the player's local
+ * midnight (see the comment in patches.cpp). Same preconditions as game_install_lod_apply_probe. */
+void game_install_engine_clock(pvz2_elf_image_t *img);
+
 }  // namespace pvz2native
 
 #endif

@@ -35,6 +35,16 @@ std::atomic<std::uint32_t> g_slice_override{0};
 /* Host callback run between JIT slices on the main thread. */
 std::atomic<pvz2_host_pump_fn> g_host_pump{nullptr};
 
+/* guest_tls::self_id is 1 on the thread driving the synchronous top-level calls and 2+ inside spawned guest
+ * threads, so this keeps the pump on the window's own thread. The callback rate-limits itself. */
+void pump_host_from_main_thread() {
+    if (guest_tls::self_id != 1) return;
+    if (pvz2_host_pump_fn pump = g_host_pump.load(std::memory_order_relaxed)) pump();
+}
+
+/* While booting, how many import calls pass between two host pumps (see handle_import_call). */
+constexpr std::uint32_t kBootPumpEveryCalls = 0x4000;
+
 std::mutex g_status_lock;
 char g_status[160] = "starting";
 
@@ -427,6 +437,15 @@ void Pvz2Env::handle_import_call(std::uint32_t idx) {
     auto &regs = jit->Regs();
     const char *name = (idx < img->trampoline_count) ? img->trampoline_names[idx] : "<unknown>";
     ++import_calls;
+    /* Run() only returns to run_jit_sliced when its tick slice runs out, but every import call hands the JIT a
+     * fresh slice. A boot phase that is mostly import calls (onSurfaceCreated: ~16M of them in ~20 s) therefore
+     * keeps the JIT running for seconds, with no host pump: the window is not repainted and the loading bar
+     * freezes. Pumping from here, before the handler runs, is the same as the pump at a slice boundary. Boot
+     * only: once frames run, every frame ends in a guest return and the pump already runs between frames. */
+    static thread_local std::uint32_t calls_since_pump = 0; /* import_calls restarts with every guest call */
+    if ((++calls_since_pump & (kBootPumpEveryCalls - 1)) == 0 && diagnostics::current_frame() == 0) {
+        pump_host_from_main_thread();
+    }
     if (trace::enabled()) {
         if (import_calls == kTraceCallLimit) {
             std::lock_guard<std::mutex> lg(rt->log_lock);
@@ -687,12 +706,7 @@ Dynarmic::HaltReason run_jit_sliced(Dynarmic::A32::Jit &jit, Pvz2Env &env) {
     Dynarmic::HaltReason hr{};
     for (;;) {
         hr = jit.Run();
-        /* guest_tls::self_id is 1 on the thread driving the synchronous
-         * top-level calls and 2+ inside spawned guest threads, so this keeps
-         * the pump on the window's own thread. The callback rate-limits itself. */
-        if (guest_tls::self_id == 1) {
-            if (pvz2_host_pump_fn pump = g_host_pump.load(std::memory_order_relaxed)) pump();
-        }
+        pump_host_from_main_thread();
         if (env.should_halt) break; /* covers every real stop condition */
         if (!pvz2_config()->pc_sample) continue;
         std::uint32_t pc = jit.Regs()[15];

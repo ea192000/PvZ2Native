@@ -212,7 +212,6 @@ const GameSymbols kVersions[] = {
             .lod_match_fn = 0x40f44c,
             .lod_match_progress_bne = 0x40f58c,
             .lod_match_uid_bls = 0x40f640,
-            .lod_time_float_beq = 0x81e978,
             .lod_uid_writer_fn = 0x69f8dc,
             .scr_create = 0x4a396c,
             .scr_destroy = 0x4a3a00,
@@ -222,6 +221,7 @@ const GameSymbols kVersions[] = {
             .quest_slot_pick_fn = 0x758f04,
             .quest_candidate_fn = 0x7599ec,
             .quest_add_fn = 0x75975c,
+            .engine_clock_fn = 0x81e960,
             .quest_shuffle_fn = 0x7598e8,
             .rs_default_state = 0x11d2bc0,
             /* The `MOV R1,#1` in sub_737DB8, whose only caller is

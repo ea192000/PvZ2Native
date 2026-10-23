@@ -258,17 +258,33 @@ void log_active(const Active &now, const Active *prev) {
     vlog("quest-save", "ActiveQuests written (%zu):%s", now.q.size(), d.empty() ? " no tracked change" : d.c_str());
 }
 
+/* Each profile keeps its own active quests in activequests/<profile>_ActiveQuests. The engine rewrites the file
+ * of the profile in play, so the one touched last is the one to follow; switching profiles resets what the
+ * trace remembers, so its diffs never compare two profiles. */
 void find_active_path() {
-    if (!g_act.path.empty() && fs::exists(g_act.path)) return;
     std::error_code ec;
     if (!fs::is_directory(kActiveDir, ec)) return;
+    fs::path newest;
+    fs::file_time_type newest_time{};
     for (const auto &e : fs::directory_iterator(kActiveDir, ec)) {
         const fs::path p = e.path() / "save_QuestsActive.rton";
-        if (fs::exists(p, ec)) {
-            g_act.path = p;
-            return;
+        const auto t = fs::last_write_time(p, ec);
+        if (ec) {
+            ec.clear();
+            continue;
+        }
+        if (newest.empty() || t > newest_time) {
+            newest = p;
+            newest_time = t;
         }
     }
+    if (newest.empty() || newest == g_act.path) return;
+    if (!g_act.path.empty())
+        vlog("quest-save", "active quests now follow %s", newest.parent_path().filename().string().c_str());
+    g_act = FileWatch{};
+    g_act.path = newest;
+    g_prev_active = Active{};
+    g_have_act = false;
 }
 
 }  // namespace

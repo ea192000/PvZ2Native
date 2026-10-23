@@ -147,6 +147,7 @@ extern "C" pvz2_session_t *pvz2_session_start(const char *so_path) {
     pvz2native::game_install_reward_screen_fix(&s->img);
     pvz2native::game_install_quest_trace(&s->img);
     pvz2native::game_install_quest_shuffle_seed(&s->img);
+    pvz2native::game_install_engine_clock(&s->img);
 
     /* Load-time bring-up, then the registered-native lifecycle, in the exact
      * order the real Android runtime uses -- see engine/. */

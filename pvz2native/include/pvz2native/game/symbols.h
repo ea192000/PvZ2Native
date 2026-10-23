@@ -189,8 +189,6 @@ struct GameSymbols {
          *   lod_match_uid_bls -- in sub_40F44C, BLS that skips the UID writer
          *     when schedule_uid <= +0x178 (assumes UIDs rise with time; our
          *     mid-insert days and future holiday UIDs violate that).
-         *   lod_time_float_beq -- in sub_81E960, BEQ into the float/skewed
-         *     clock path. NOP so LoD schedule matching uses host time().
          *   lod_uid_writer_fn -- sub_69F8DC: STR UID/state at obj+0x184/+0x190.
          * 0 = not mapped. */
         std::uint32_t lod_apply_fn;
@@ -202,7 +200,6 @@ struct GameSymbols {
         std::uint32_t lod_match_fn;
         std::uint32_t lod_match_progress_bne;
         std::uint32_t lod_match_uid_bls;
-        std::uint32_t lod_time_float_beq;
         std::uint32_t lod_uid_writer_fn;
 
         /* Create / destroy of the 0x104-byte reward-screen singleton (vtable at
@@ -233,6 +230,12 @@ struct GameSymbols {
         std::uint32_t quest_slot_pick_fn;
         std::uint32_t quest_candidate_fn;
         std::uint32_t quest_add_fn;
+
+        /* The engine's "what time is it" (sub_81E960: `PUSH {r4,lr}`, r0 = the clock object), used by the Level
+         * of the Day schedule, the quest limiter and the active-event countdown. Its own clock (a float
+         * counter plus a server-set offset) reads ~2030 on this port, which stuck the schedule on far-future
+         * events, so game_install_engine_clock replaces it. 0 = not mapped. */
+        std::uint32_t engine_clock_fn;
         /* The shuffle the pick runs over a slot's candidates (std::random_shuffle over 8-byte
          * handles, called from the slot pick and from one wrapper). 0 = not mapped. */
         std::uint32_t quest_shuffle_fn;

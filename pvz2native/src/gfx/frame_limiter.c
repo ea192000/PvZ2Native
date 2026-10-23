@@ -29,37 +29,42 @@ static Uint64 g_perf_freq = 1;
  * the first wait anchors it. */
 static Uint64 g_next_frame = 0;
 
+/* Vsync stays ON under a finite cap: it is what keeps the presented frame
+ * whole (no tearing), and the wait below only has to do anything when the
+ * cap is BELOW the refresh rate. So the effective rate is min(cap, refresh),
+ * and the default 120 changes nothing for the usual 60 Hz display -- it only
+ * bites on a 120/144/240 Hz one, where the old code let the engine redraw at
+ * the panel's full rate for no visible gain. Adaptive vsync first (no stutter
+ * when a frame misses vblank), plain vsync if the driver lacks it. "Unlimited"
+ * has to mean unlimited, so vsync goes too -- leaving it on would cap the loop
+ * at the refresh rate and make 0 a synonym for whatever the monitor does. */
+static void apply_swap_interval(void) {
+    if (g_frame_ticks == 0) {
+        SDL_GL_SetSwapInterval(0);
+    } else if (SDL_GL_SetSwapInterval(-1) != 0) {
+        SDL_GL_SetSwapInterval(1);
+    }
+}
+
 void pvz2_frame_limit_init(void) {
     const int fps = pvz2_config()->fps_limit;
 
     g_perf_freq = SDL_GetPerformanceFrequency();
     if (g_perf_freq == 0) g_perf_freq = 1;
     g_next_frame = 0;
+    g_frame_ticks = fps <= 0 ? 0 : g_perf_freq / (Uint64)fps;
+    apply_swap_interval();
 
     if (fps <= 0) {
-        /* "Unlimited" has to mean unlimited, so vsync goes too -- leaving it on
-         * would cap the loop at the refresh rate and make 0 a synonym for
-         * whatever the monitor does. */
-        SDL_GL_SetSwapInterval(0);
-        g_frame_ticks = 0;
         pvz2_log("[video] frame limit off (vsync off, presenting as fast as the machine manages)");
-        return;
+    } else {
+        pvz2_log("[video] frame limit %d FPS (vsync on, so the display's refresh rate can cap it lower)", fps);
     }
-
-    /* Vsync stays ON under a finite cap: it is what keeps the presented frame
-     * whole (no tearing), and the wait below only has to do anything when the
-     * cap is BELOW the refresh rate. So the effective rate is min(cap, refresh),
-     * and the default 120 changes nothing for the usual 60 Hz display -- it only
-     * bites on a 120/144/240 Hz one, where the old code let the engine redraw at
-     * the panel's full rate for no visible gain. Adaptive vsync first (no stutter
-     * when a frame misses vblank), plain vsync if the driver lacks it. */
-    if (SDL_GL_SetSwapInterval(-1) != 0) {
-        SDL_GL_SetSwapInterval(1);
-    }
-    g_frame_ticks = g_perf_freq / (Uint64)fps;
-    pvz2_log("[video] frame limit %d FPS (vsync on, so the display's refresh rate can cap it lower)",
-           fps);
 }
+
+void pvz2_frame_limit_vsync_suspend(void) { SDL_GL_SetSwapInterval(0); }
+
+void pvz2_frame_limit_vsync_resume(void) { apply_swap_interval(); }
 
 void pvz2_frame_limit_wait(void) {
     if (g_frame_ticks == 0) return;
