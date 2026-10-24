@@ -204,6 +204,7 @@ const GameSymbols kVersions[] = {
              * 0x40f640: BLS when schedule_uid <= +0x178 -> NOP.
              * 0x81e978: BEQ into float clock -> NOP (use time()). */
             .lod_apply_fn = 0x3487ac,
+            .clock_synced_fn = 0x81e948,
             .lod_apply_stub_call = 0x346a00,
             .lod_apply_stub_skip_bne = 0x3469f8,
             .lod_apply_tick_gate = 0x3485f0, /* observed only; not rewritten */

@@ -167,10 +167,10 @@ const Setting kSettings[] = {
      "daily and epic quests from appearing. By default, at launch, any such time more than 30 days\n"
      "ahead is reset to yesterday. 1 = leave the save alone. Not applied while force_date is set.",
      nullptr, "0"},
-    {"runtime", "lod_legacy_hacks", nullptr, Kind::kBool, offsetof(pvz2_config_t, lod_legacy_hacks), 0,
+    {"runtime", "lod_force_repeat", nullptr, Kind::kBool, offsetof(pvz2_config_t, lod_force_repeat), 0,
      "Daily pinata party. 0 (default) keeps the engine's own rules: once you win, the event leaves\n"
-     "the map until the next one starts. 1 re-enables older workarounds that keep a REPLAY banner\n"
-     "on the map after winning (they reset the \"completed level\" field and skip two engine\n"
+     "the map until the next one starts. 1 forces the party to be repeatable: a REPLAY banner stays\n"
+     "on the map after winning (it resets the \"completed level\" field and skips two engine\n"
      "checks). Takes effect at the next launch.", nullptr, "0"},
     {"runtime", "rewrite_cdn", nullptr, Kind::kBool, offsetof(pvz2_config_t, rewrite_cdn), 0,
      "Re-copy OBB Packages into userdata/CDN.<tag> on every launch (overwrite).\n"
@@ -1526,7 +1526,7 @@ void heal_config_ini(const char *ini_path) {
     /* Optional switches added later: shown commented, with their comment, in files made before them. */
     for (const Setting &s : kSettings) {
         const bool added_later = (std::strcmp(s.section, "runtime") == 0 &&
-                                  (std::strcmp(s.key, "lod_legacy_hacks") == 0 || std::strcmp(s.key, "force_date") == 0 ||
+                                  (std::strcmp(s.key, "lod_force_repeat") == 0 || std::strcmp(s.key, "force_date") == 0 ||
                                    std::strcmp(s.key, "no_fix_save_dates") == 0 ||
                                    std::strcmp(s.key, "use_cdn") == 0 ||
                                    std::strcmp(s.key, "allow_repeat_quests") == 0)) ||

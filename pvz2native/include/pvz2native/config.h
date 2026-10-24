@@ -72,7 +72,7 @@ typedef struct pvz2_config {
     int use_cdn;            /* [runtime] use_cdn: 0 = do not serve the emulated CDN (default 1) */
     int allow_repeat_quests; /* [runtime] allow_repeat_quests: 1 = repeatable quests you already claimed count kills again instead of completing by themselves (default 1) */
     char force_date[32];    /* [runtime] force_date: "YYYY-MM-DD [HH:MM[:SS]]" local time the game sees; empty = real clock */
-    int lod_legacy_hacks;   /* 1 = old daily-pinata workarounds (progress/uid-order patches + completed-field reset) */
+    int lod_force_repeat;   /* 1 = the daily pinata party can be replayed (progress/uid-order patches + completed-field reset) */
 
     /* [gl] -- rendering diagnostics. */
     int gl_debug_clear;     /* force a loud clear colour instead of the engine's black */

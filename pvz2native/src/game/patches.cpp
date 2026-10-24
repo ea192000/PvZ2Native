@@ -177,16 +177,36 @@ bool force_lod_apply(pvz2_elf_image_t *img) {
         any = true;
     /* BNE when profile +0x178 < +0x184 -- sticky Active LoD after a write that
      * refreshed alod/end but not the "last scheduled" field. */
-    if (pvz2_config()->lod_legacy_hacks &&
+    if (pvz2_config()->lod_force_repeat &&
         rewrite_word(img, sym().patch.lod_match_progress_bne, 0x1A000035u, kNopMovR0R0,
                      "lod: progress BNE->NOP"))
         any = true;
     /* BLS skipping UID writer when schedule_uid <= +0x178. */
-    if (pvz2_config()->lod_legacy_hacks &&
+    if (pvz2_config()->lod_force_repeat &&
         rewrite_word(img, sym().patch.lod_match_uid_bls, 0x9A000008u, kNopMovR0R0,
                      "lod: uid-order BLS->NOP"))
         any = true;
     return any;
+}
+
+/* "Is the engine clock synced with the game server?" (sub_81E948: `VLDR S0,[R0,#0x48]; MOV R0,#0; VCMPE; VMRS; MOVWNE R0,#1;
+ * BX LR`, true when the server-time offset at clock+0x48 is non-zero). The port has no server, so it was always false, and
+ * the world-map banner then never finds the next Level of the Day (sub_4117D4 returns null at once), so the countdown to the
+ * next piñata ("10h 32m 33s hasta la siguiente fiesta") was never shown. The engine's own "now" (sub_81E960) is already
+ * replaced by game_install_engine_clock with what the original returned once synced, so the flag is made to say so:
+ * `MOV R0,#1; BX LR`. Also read by sub_69F830 (time left of the active event), which then takes its synced branch. */
+bool force_clock_synced(pvz2_elf_image_t *img) {
+    const std::uint32_t fn = sym().patch.clock_synced_fn;
+    if (fn == 0 || !in_image(img, fn + 4)) return false;
+    if (read_word(img, fn) != 0xED900A12u || read_word(img, fn + 4) != kMovR0Zero) {
+        pvz2_log("[patch] clock synced (0x%x) is not the expected function -- skipped; the address in "
+                 "src/game/symbols.cpp is wrong for this build",
+                 fn);
+        return false;
+    }
+    write_word(img, fn, kMovR0One);
+    write_word(img, fn + 4, 0xE12FFF1Eu); /* BX LR */
+    return true;
 }
 
 /* Makes a completed payment finish locally AND finish as validated. Both halves
@@ -231,9 +251,14 @@ void game_apply_patches(pvz2_elf_image_t *img) {
     if (force_lod_apply(img)) {
         pvz2_log("[patch] lod apply: stub->real apply, ready/match gates NOP'd so schedule can "
                  "commit Active LoD (tick BLEQ left alone)%s",
-                 pvz2_config()->lod_legacy_hacks
-                     ? "; legacy: progress + uid-order gates NOP'd, completed-field reset on"
+                 pvz2_config()->lod_force_repeat
+                     ? "; force-repeat: progress + uid-order gates NOP'd, completed-field reset on"
                      : "; the engine's own completed-level rules are kept");
+    }
+
+    if (force_clock_synced(img)) {
+        pvz2_log("[patch] engine clock reports \"synced\" so the world map can find the next Level of the Day "
+                 "(countdown to the next piñata)");
     }
 
     /* With the emulated store off the engine is meant to find no store at all,
@@ -494,7 +519,7 @@ void lod_match_enter(GuestCall &c) {
             c.write32(fr.r1 + kLodOffAlod, 0);
             c.write32(fr.r1 + kLodOffWmish, 0);
             fr.pre_178 = fr.pre_184 = fr.pre_190 = 0;
-        } else if (pvz2_config()->lod_legacy_hacks && fr.pre_184 != 0 && fr.pre_178 == fr.pre_184 && fr.pre_190 > now &&
+        } else if (pvz2_config()->lod_force_repeat && fr.pre_184 != 0 && fr.pre_178 == fr.pre_184 && fr.pre_190 > now &&
                    (fr.pre_190 - now) <= kLodMaxSaneEndSkewSec) {
             /* Prior probe sync set +0x178==alod; that makes apply's R4!=0 and
              * clobbers the map out-flag. Real writer leaves +0x178 behind. */

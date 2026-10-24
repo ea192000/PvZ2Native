@@ -192,6 +192,9 @@ struct GameSymbols {
          *   lod_uid_writer_fn -- sub_69F8DC: STR UID/state at obj+0x184/+0x190.
          * 0 = not mapped. */
         std::uint32_t lod_apply_fn;
+        /* sub_81E948: "engine clock synced with the server?" (clock+0x48 != 0); the port has no server, so it is
+         * rewritten to always say yes -- see force_clock_synced in patches.cpp. 0 = not mapped. */
+        std::uint32_t clock_synced_fn;
         std::uint32_t lod_apply_stub_call;
         std::uint32_t lod_apply_stub_skip_bne;
         std::uint32_t lod_apply_tick_gate;
